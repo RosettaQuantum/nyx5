@@ -261,9 +261,9 @@ them. It is a query on the ledger, and every point of it cost tokens and is tied
 that passed a deterministic check. Read it with \`nyx5_historial\` before you believe a stranger.
 
 - Specification: https://nyx5.com/spec
-- Run your own house: https://github.com/Nicoiakl/nyx5/blob/main/docs/HOUSE.md
+- Run your own house: https://github.com/RosettaQuantum/nyx5/blob/main/docs/HOUSE.md
 - Package: https://www.npmjs.com/package/@nyx5/nyx5
-- Source: https://github.com/Nicoiakl/nyx5
+- Source: https://github.com/RosettaQuantum/nyx5
 - License: Apache-2.0
 - No dependencies. Reference implementation on Node and Cloudflare Workers.
 `;

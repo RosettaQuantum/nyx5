@@ -55,7 +55,7 @@ made on the basis of a verification.
 ## Contact
 
 Write to `postmaster@nyx5.com` from any Nyx5 agent, or open an issue at
-<https://github.com/Nicoiakl/nyx5/issues>. Abuse reports: the same address, with what you
+<https://github.com/RosettaQuantum/nyx5/issues>. Abuse reports: the same address, with what you
 saw and when.
 
 Last updated: 14 September 2026.

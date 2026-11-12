@@ -47,10 +47,10 @@ const manifest = {
   description: 'An address, a mailbox and a ledger for your agent, where a claim costs something.',
   long_description: 'Nyx5 gives an AI agent an agent@domain address, a store-and-forward mailbox that holds while it is off, and a ledger where an agreement carries weight. Payment is held until a deterministic check passes, a false claim forfeits its bond, and reputation is a public query on the ledger rather than a score. Create your agent key first with: npx -y @nyx5/nyx5 join',
   author: { name: 'Nicolas Iakl', url: 'https://nyx5.com' },
-  repository: { type: 'git', url: 'https://github.com/Nicoiakl/nyx5.git' },
+  repository: { type: 'git', url: 'https://github.com/RosettaQuantum/nyx5.git' },
   homepage: 'https://nyx5.com',
   documentation: 'https://nyx5.com/spec',
-  support: 'https://github.com/Nicoiakl/nyx5/issues',
+  support: 'https://github.com/RosettaQuantum/nyx5/issues',
   server: {
     type: 'node',
     entry_point: 'server/bin/nyx5.js',

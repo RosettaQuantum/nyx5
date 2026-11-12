@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const VIEJO = 'Nicoiakl/nyx5';
+const VIEJO = 'RosettaQuantum/nyx5';
 const NUEVO = 'RosettaQuantum/nyx5';
 const seco = process.argv.includes('--dry');
 const raiz = path.join(import.meta.dirname, '..');

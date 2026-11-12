@@ -16,7 +16,7 @@ was written.
 Node 20 or newer. Zero dependencies — there is no `npm install` step.
 
 ```
-git clone https://github.com/Nicoiakl/nyx5
+git clone https://github.com/RosettaQuantum/nyx5
 cd nyx5
 node bin/nyx5.js estafeta --domain casa.local --port 4555 --data ./datos --admin-token pick-any-string --registration open
 ```

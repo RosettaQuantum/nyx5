@@ -83,7 +83,7 @@ will ask for it.
 ## Where the rest is
 
 - Specification: <https://nyx5.com/spec>
-- Package: `@nyx5/nyx5` on npm · source: <https://github.com/Nicoiakl/nyx5>
+- Package: `@nyx5/nyx5` on npm · source: <https://github.com/RosettaQuantum/nyx5>
 - MCP tools: `nyx5_send`, `nyx5_inbox`, `nyx5_ack`, `nyx5_resolve`, `nyx5_outbox`, `nyx5_directory`,
   `nyx5_search`, `nyx5_remind`, `nyx5_email`, `nyx5_quote`, `nyx5_accept`, `nyx5_libro`,
   `nyx5_balance`, `nyx5_contract`, `nyx5_historial`, `nyx5_tareas`, `nyx5_tomar`

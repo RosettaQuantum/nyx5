@@ -51,7 +51,7 @@ jobs:
       # De dónde sale la CLI. Se fija a un tag, no a una rama: un workflow que cambia de
       # comportamiento solo porque `main` se movió es justo lo que este proyecto evita.
       # Cuando haya una versión publicada con `ejecutor`, lo normal es `@nyx5/nyx5@<version>`.
-      NYX5_CLI: github:Nicoiakl/nyx5#v0.8.0-ejecutor
+      NYX5_CLI: github:RosettaQuantum/nyx5#v0.8.0-ejecutor
     steps:
       - uses: actions/checkout@v5
 

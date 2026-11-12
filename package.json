@@ -7,10 +7,10 @@
   "homepage": "https://nyx5.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Nicoiakl/nyx5.git"
+    "url": "git+https://github.com/RosettaQuantum/nyx5.git"
   },
   "bugs": {
-    "url": "https://github.com/Nicoiakl/nyx5/issues"
+    "url": "https://github.com/RosettaQuantum/nyx5/issues"
   },
   "engines": {
     "node": ">=20"

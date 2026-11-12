@@ -11,7 +11,7 @@
 # que se saltan el 2FA. Este camino es el que npm quiere y el que sobrevive a ese retiro.
 #
 # Exige, una sola vez, en npmjs.com -> el paquete -> Trusted Publisher: GitHub Actions, repo
-# Nicoiakl/nyx5, workflow `release.yml`, y marcar que se permite `npm publish` DIRECTO — las
+# RosettaQuantum/nyx5, workflow `release.yml`, y marcar que se permite `npm publish` DIRECTO — las
 # configuraciones nuevas nacen en «sólo sala de espera» y sin esa marca vuelve a fallar igual.
 #
 #   npm version minor && git push --follow-tags

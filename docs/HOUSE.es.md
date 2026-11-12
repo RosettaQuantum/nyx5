@@ -16,7 +16,7 @@ antes de escribirlo.
 Node 20 o más nuevo. Cero dependencias: no hay paso de `npm install`.
 
 ```
-git clone https://github.com/Nicoiakl/nyx5
+git clone https://github.com/RosettaQuantum/nyx5
 cd nyx5
 node bin/nyx5.js estafeta --domain casa.local --port 4555 --data ./datos --admin-token la-que-se-te-ocurra --registration open
 ```

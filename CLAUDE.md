@@ -145,7 +145,7 @@ estimación: es lo que el asiento dice que salió de la cuenta del frente.
 son @nyx5.com; `nicholas@nyx5.com` registrado y el conector MCP (`~/.chasqui/nicholas.json` (el directorio conserva el nombre viejo)) apunta ahí
 (respaldo `.chsq-uk.bak`; requiere reiniciar la app de Claude para tomarlo). chsq.uk queda como alias del
 mismo Worker. El protocolo sigue siendo Nyx5/1 (id firmado en cada sobre). Repo público:
-**github.com/Nicoiakl/nyx5**, CI verde (Node 20 y 24; el emulador D1 usa node:sqlite, que no está en
+**github.com/RosettaQuantum/nyx5**, CI verde (Node 20 y 24; el emulador D1 usa node:sqlite, que no está en
 Node 20 → esas suites saltan, ver `sqliteAvailable`). `docs/SPEC.en.md`: traducción al inglés (borrador §5).
 
 **D2 hecho (2026-09-06)**: presencia pública. LICENSE Apache-2.0, package.json publicable
