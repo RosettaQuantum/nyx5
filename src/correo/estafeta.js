@@ -39,7 +39,7 @@ import * as x402 from '../puentes/x402.js';
 import * as oauth from '../puentes/oauth.js';
 import { atenderMcp } from '../puentes/mcp-remoto.js';
 import { abrirBoveda } from '../nucleo/boveda.js';
-import { ICONOS } from '../plataformas/iconos.js';
+import { ICONOS, FAVICON_SVG } from '../plataformas/iconos.js';
 import { Agent } from './agente.js';
 import { eventoDeCobro } from './cobro.js';
 import { atenderAsistentes, gastoDe, PRECIOS, MEDIA_GATE } from './asistente.js';
@@ -2125,9 +2125,10 @@ export class Estafeta {
         return { status: 200, contentType: 'image/png', body: Buffer.from(OG_PNG_B64, 'base64') };
       }
       // Un favicon en línea: sin esto el navegador pide /favicon.ico en cada visita y se lleva
-      // un 404. SVG porque pesa 200 bytes y escala en cualquier pantalla.
+      // un 404. SVG porque pesa menos de 1 KB y escala en cualquier pantalla. Es la marca compacta
+      // N5 en curvas (web/marca/nyx5-n5.svg, generada en iconos.js): sin fuente que cargar.
       if (rx.method === 'GET' && (path === '/favicon.ico' || path === '/favicon.svg')) {
-        return { status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0c0c10"/><text x="32" y="43" font-family="ui-monospace,Menlo,monospace" font-size="30" font-weight="600" fill="#9b8cff" text-anchor="middle">n5</text></svg>' };
+        return { status: 200, contentType: 'image/svg+xml', body: FAVICON_SVG };
       }
       if (rx.method === 'GET' && path === '/robots.txt') {
         return { status: 200, contentType: 'text/plain; charset=utf-8', body: `User-agent: *\nAllow: /\n# Los buzones y el Libro exigen firma; no hay nada que rastrear ahí.\nDisallow: /mailbox/\nDisallow: /libro/\nDisallow: /outbox/\nSitemap: https://${this.domain}/sitemap.xml\n` };
