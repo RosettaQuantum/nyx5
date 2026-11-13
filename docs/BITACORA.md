@@ -18,6 +18,7 @@ Nada de esto lo puede hacer la sesión: exige sus credenciales, su firma o su cr
 | ☐ | **Marca INAPI** clase 42, en pausa hasta la vuelta (`marca/SOLICITUD-MARCA-NYX5.md`) | 13-sep |
 | ☐ | **AP2**: ¿se queda mapeado o se le construye la segunda llave ECDSA? Recomendación: dejarlo mapeado | 9-sep |
 | ☐ | **x402**: ¿la comisión de la casa puede seguir saliendo de lo que recibe el receptor? Si x402 responde que no, el binding exige cambiar cómo se asienta la comisión. Preguntado en su issue #3435 | 9-sep |
+| ☐ | **Portada nueva y marca NYX5** (rama `web/propuesta-marca-nyx5`), pendiente de aprobación de Nicholas: el wordmark NYX5 reemplaza el sello en favicon, og:image e íconos de la app; la portada pasa de una línea a la propuesta v2 (~77 KB, con botón EN/ES). Nada desplegado ni mergeado. Decidir: (1) la marca, (2) la portada larga contra la mínima de una línea, (3) la comisión publicada (0,5 %, de `NYX5_FEE_BPS`) | 13-nov |
 
 ## Abierto — de la sesión
 
@@ -30,6 +31,18 @@ Nada de esto lo puede hacer la sesión: exige sus credenciales, su firma o su cr
 | ☐ | Reclamar el listado de glama.ai con OAuth de GitHub | 8-sep |
 
 ## Hecho
+
+### 13-nov-2026 — portada desde la propuesta v2 y marca NYX5 (rama `web/propuesta-marca-nyx5`, pendiente de aprobación de Nicholas)
+
+- La marca es un wordmark NYX5 en curvas (Arial, tracking ~0,65 del ancho de letra), sin fuente:
+  `web/marca/`. Una versión compacta N5 para el favicon, porque las cuatro letras no se leen a 16 px.
+- `/` sale de `web/home.html` (scripts/build-home.mjs lo inlinea, como /app). El número de
+  herramientas MCP y la comisión de la casa se llenan en el build desde el código.
+- Afirmaciones de la propuesta revisadas contra el código: 31 herramientas y 6 redes x402 se
+  sostienen; se quitaron «538 tests» (envejece), «~4 s» (no está medido), `reply`/`open` y
+  `nyx5_reply` (no existen) y «la casa nunca retiene tu dinero» (el escrow sí lo retiene).
+- og:image e íconos se rasterizan desde el SVG en `scripts/marca.mjs`, sin dependencias. El
+  `theme_color` de /app sigue en `#12A594`: es el acento propio de la app, no de la marca.
 
 ### 4-nov-2026 — la puerta de npm quedó abierta, y el brief salió (NX-807, NX-808)
 

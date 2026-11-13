@@ -85,24 +85,42 @@ test('la portada apunta a que un agente se una', async () => {
   assert.match(HOME_HTML, /Give your agent an address/);
   const fs = await import('node:fs');
   const cli = fs.readFileSync(new URL('../bin/nyx5.js', import.meta.url), 'utf8');
-  for (const h of [HOME_HTML]) {
-    // El comando es lo único que la portada pide hacer, y tiene que existir de verdad. Se comprueba
-    // el OBJETO, no la palabra: antes esto exigía literalmente `join`, y cuando la portada pasó a
-    // mostrar el comando que de verdad usa un agente (4-nov-2026: la identidad se crea sola en la
-    // primera llamada, así que un alta aparte sobra) el guardia falló por la letra teniendo la
-    // intención intacta. Ahora lee el verbo que la portada muestra y exige que el CLI lo implemente.
-    const verbo = /npx @nyx5\/nyx5 ([a-z]+)/.exec(h)?.[1];
-    assert.ok(verbo, 'la portada no muestra ningún comando');
-    assert.match(cli, new RegExp(`case '${verbo}':`), `la portada muestra \`${verbo}\` y el CLI no lo implementa`);
-    assert.ok(!/chasqui/i.test(h), 'quedó una mención al nombre viejo');
-    // Minimalista de verdad, medido: una sola llamada a la acción y una portada que cabe.
-    assert.equal((h.match(/npx @nyx5\/nyx5/g) || []).length, 1, 'un solo comando; dos ya es un menú');
-    assert.ok(h.length < 9000, `la portada pesa ${h.length} bytes: está creciendo`);
-    assert.equal((h.match(/<h1/g) || []).length, 1);
-    assert.ok(!/<h2|<h3/.test(h), 'sin secciones: si necesita subtítulos, ya no es una portada');
-  }
+  const h = HOME_HTML;
+  // Cada comando que la portada muestra tiene que existir de verdad. Se comprueba el OBJETO, no la
+  // palabra: se leen TODOS los verbos que aparecen (el hero, la terminal de ejemplo, el CTA) y el
+  // CLI tiene que implementar cada uno. La propuesta v2 traía `reply` y `open`, que el CLI no tiene.
+  const verbos = new Set([...h.matchAll(/npx (?:-y )?@nyx5\/nyx5 ([a-z]+)/g)].map((m) => m[1]));
+  assert.ok(verbos.has('join'), 'la portada no muestra el comando para unirse');
+  for (const v of verbos) assert.match(cli, new RegExp(`case '${v}':`), `la portada muestra \`${v}\` y el CLI no lo implementa`);
+  assert.ok(!/chasqui/i.test(h), 'quedó una mención al nombre viejo');
+  // La portada dejó de ser una sola línea (12-nov-2026): lleva la demo de dos agentes y el
+  // diccionario ES del botón de idioma, y con eso pesa ~77 KB. 90 KB es ese peso con margen para
+  // copy, no para otra sección: si se pasa, algo se está acumulando y conviene mirarlo.
+  assert.ok(h.length < 90_000, `la portada pesa ${h.length} bytes: está creciendo`);
+  assert.equal((h.match(/<h1/g) || []).length, 1, 'una sola h1');
+  assert.match(h, /Give your agent an address tonight\./, 'el CTA final');
+  assert.ok(!/\{\{[A-Z]+\}\}/.test(h), 'quedó un hueco sin llenar en la portada');
+  // Los números que la portada afirma salen del código, no de la copy.
+  const { TOOLS } = await import('../src/puentes/herramientas.js');
+  assert.match(h, new RegExp(`${TOOLS.length} MCP tools`), 'el número de herramientas no coincide con el código');
+  const bps = /^NYX5_FEE_BPS\s*=\s*"(\d+)"/m.exec(fs.readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8'))[1];
+  assert.match(h, new RegExp(`house fee: ${Number(bps) / 100}%`), 'la comisión publicada no coincide con NYX5_FEE_BPS');
   assert.match(cli, /case 'join':/, 'el CLI implementa lo que la portada promete');
-  assert.match(HOME_HTML, /href="\/spec"/);
+  assert.match(h, /href="\/spec"/);
+});
+
+// La CSP de la casa es `default-src 'none'` con estilo y script sólo inline: una fuente, un script
+// o una hoja de estilo de fuera no cargaría y la página se vería rota sin error visible. La
+// propuesta v2 traía Geist desde Google Fonts. Y los enlaces propios van relativos, para que la
+// misma portada sirva en b.nyx5.com sin mandar al visitante a producción.
+test('la portada no carga nada de fuera y enlaza la casa en relativo', async () => {
+  const { HOME_HTML: h } = await import('../src/plataformas/home-html.js');
+  assert.ok(!/<script[^>]+\ssrc=/i.test(h), 'un <script src> externo');
+  assert.ok(!/<link[^>]+rel="(?:stylesheet|preconnect|preload|modulepreload|dns-prefetch)"/i.test(h), 'una hoja, fuente o preconexión externa');
+  assert.ok(!/@import|url\(\s*['"]?(?:https?:)?\/\//i.test(h), 'CSS que pide algo de fuera');
+  assert.ok(!/\ssrc="(?:https?:)?\/\//i.test(h), 'un src absoluto');
+  assert.ok(!/fonts\.(?:googleapis|gstatic)\.com/.test(h), 'Google Fonts');
+  assert.ok(!/<a [^>]*href="https:\/\/nyx5\.com/.test(h), 'un enlace absoluto a la casa: debe ser relativo');
 });
 
 // Nació de dos roturas idénticas: "the parent's grantee" y "An agent's reputation" dentro de
