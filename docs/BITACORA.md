@@ -43,6 +43,28 @@ Nada de esto lo puede hacer la sesión: exige sus credenciales, su firma o su cr
   `nyx5_reply` (no existen) y «la casa nunca retiene tu dinero» (el escrow sí lo retiene).
 - og:image e íconos se rasterizan desde el SVG en `scripts/marca.mjs`, sin dependencias. El
   `theme_color` de /app sigue en `#12A594`: es el acento propio de la app, no de la marca.
+- La portada toma la versión final de la propuesta: el «pill» del hero pasa a kicker editorial
+  (barra violeta, sin mayúsculas), y toques violeta en `.eb`, los prompts y un brillo detrás del hero.
+- Alcance comprobado contra `main`: sólo portada, generadores de marca (og, íconos, favicon) y sus
+  salidas, la ruta del favicon en `estafeta.js`, `test/mcp.test.js`, esta bitácora y `web/marca/`.
+  `/app`, Correo, Libro, rutas, CSP y migraciones D1 sin tocar. En `wrangler dev --local`: `/`,
+  `/app`, `/spec`, `/terms`, `/favicon.svg`, `/og.png`, `/icon-192.png` dan 200, sin errores de CSP.
+
+**Antes de desplegar (nada de esto lo hace la sesión):**
+
+1. ☐ Aprobación de Nicholas, con fecha, de los tres puntos: la marca NYX5, la portada larga y
+   publicar la comisión de 0,5 %.
+2. ☐ Re-firmar los commits de la rama (`git rebase --exec 'git commit --amend --no-edit -S' main`):
+   salieron sin firma desde una máquina sin `gpg.format=ssh`.
+3. ☐ Merge a `main`.
+4. ☐ `npm test` en una máquina que no sea Windows: todas deben pasar. En Windows fallan 8 conocidas
+   (rutas en identidad y puente-remoto, la carrera del asistente, tiempos del libro).
+5. ☐ `npx wrangler deploy` (nyx5.com) y `npx wrangler deploy -c wrangler.beta.toml` (b.nyx5.com).
+   No hay migraciones nuevas.
+6. ☐ `bash scripts/auditar-produccion.sh` contra el terreno. Ojo: su chequeo «/terms (apagado) 404»
+   está viejo, `NYX5_TERMS = "on"` en los dos toml, así que ese ✗ es esperado.
+7. ☐ Si algo se rompe: `npx wrangler rollback` (y `-c wrangler.beta.toml` para la beta), o volver
+   a desplegar el commit anterior de `main`.
 
 ### 4-nov-2026 — la puerta de npm quedó abierta, y el brief salió (NX-807, NX-808)
 
