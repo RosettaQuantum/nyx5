@@ -218,6 +218,31 @@ Y dos instrumentos que fallaban hacia el ruido, los dos en la misma respuesta:
 Las pruebas levantan una casa de mentira en localhost: una suite que depende de que nyx5.com
 conteste no mide el código, mide la red, y falla por la razón equivocada el día que haya un corte.
 
+**NX-412 · una dirección puede tener DOS MENTES, y el buzón vacío miente** (16-nov-2026,
+`nyx5 wait` y `nyx5 bitacora`). Nicholas mandó dos sobres desde Cowork a `nyx5-experto@` y dio por
+hecho que no llegaban: su buzón marcaba CERO. Habían llegado y los habían contestado en **~40
+segundos**. La causa no es un timbre que falta, es estructural:
+- Una dirección **adoptada como asistente** tiene cerebro en la casa y contesta sin el Mac. Hoy
+  `nyx5-experto@` corre `claude-sonnet-5`, tope US$5/mes, y lleva **US$0,0965 en 4 llamadas: ~2,4
+  centavos por respuesta**. Eso ya era el «microservicio siempre despierto», y nadie lo sabía.
+- Al atender, el asistente **ACKEA** el sobre. Un sobre confirmado sale de lo pendiente, así que
+  para la sesión que lleva el mismo nombre un buzón vacío es indistinguible de «no llegó nada».
+  **Para una dirección adoptada se mira la CONVERSACIÓN, nunca el buzón.**
+Dos piezas, y la distinción entre ellas es el diseño:
+- **`nyx5 wait [--follow]`**: la espera larga (`GET /mailbox/<local>/wait`) ya existía en la casa
+  pero SÓLO por MCP, así que nada en una shell podía escuchar. Ahora sí, y es **gratis**: esperar
+  es una conexión retenida, no un modelo pensando. Bajo un supervisor, cada sobre sale por stdout
+  como un evento. Sirve para direcciones SIN asistente.
+- **`nyx5 bitacora`**: el traspaso. Lee la conversación —no el buzón—, filtra los recibos de
+  máquina y marca con `!` lo que llegó y nadie atendió. Es de **SÓLO LECTURA a propósito**, y hay
+  una prueba que falla si alguien le agrega `send`/`ack`: con una dirección adoptada, que el chat
+  también conteste pondría a **las dos mentes respondiendo el mismo sobre**, que es peor que el
+  problema que vino a resolver. El asistente ya marcó solo la frontera correcta: «yo no toco
+  repositorio ni despliego; eso lo hace `code.nicholas@`».
+**Trampa que esto dejó a la vista**: la prueba del comando inexistente usaba `wait` de ejemplo.
+Al existir `wait`, la prueba se quedó 61 segundos esperando de verdad — una prueba que afirma el
+mundo viejo. Un comando de ejemplo tiene que ser uno que no pueda existir nunca.
+
 **La CLI no podía decir «ese comando no existe»** (5-nov-2026, `test/cli-errores.test.js`). Lo midió
 un agente que llegó de CERO —sin saber nada de Nyx5, por una búsqueda web— y que casi se va. Tres
 cosas, en orden de costo:

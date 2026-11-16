@@ -88,6 +88,10 @@ const OPCIONES = {
   args: { type: 'string' }, index: { type: 'string' }, arbiter: { type: 'string' }, receipt: { type: 'string' }, limit: { type: 'string' },
   file: { type: 'string' }, 'no-ack': { type: 'boolean' },
   media: { type: 'string' }, from: { type: 'string' }, send: { type: 'boolean' },
+  // El vigía (`wait`): cuánto dura cada espera larga, si se reengancha solo, desde cuándo
+  // y de qué proyecto. Esperar NO cuesta tokens: es una conexión retenida, no un modelo.
+  seconds: { type: 'string' }, follow: { type: 'boolean' }, since: { type: 'string' }, project: { type: 'string' },
+  hours: { type: 'string' },
 };
 
 let o;
@@ -402,6 +406,97 @@ try {
       const body = o.json ? JSON.parse(need('body')) : need('body');
       const r = await a.send({ to: need('to').split(',').map((s) => s.trim()), body, type: o.type || 'message', encrypt: !o.plain, thread: o.thread, inReplyTo: o['reply-to'], receipt: o.receipt });
       print({ id: r.id, jobs: r.jobs, encrypted: !!r.envelope.encrypted });
+      break;
+    }
+    // ----- El traspaso (NX-412): qué hizo mi dirección mientras yo no estaba -----
+    // Nace de un defecto de uso medido el 16-nov-2026. Nicholas mandó dos sobres a
+    // `nyx5-experto@` y dio por hecho que no llegaban: su buzón estaba en CERO y un vigía sobre
+    // lo pendiente tampoco disparaba. Habían llegado y habían sido contestados en ~40 segundos.
+    //
+    // La causa es estructural y no se arregla con un timbre: una dirección adoptada como
+    // asistente tiene DOS MENTES —el asistente de la casa, que contesta sin el Mac, y la sesión
+    // que lleva el mismo nombre—. El asistente ACKEA lo que atiende, así que deja el pendiente en
+    // cero: para la sesión, un buzón vacío es indistinguible de «no llegó nada».
+    //
+    // Por eso esto NO mira el buzón, mira la CONVERSACIÓN: lo entrado y lo salido, confirmado o
+    // no. Es el traspaso de una mente a la otra. Y a propósito no contesta nada: dos mentes
+    // respondiendo el mismo sobre sería peor que el problema que vino a resolver.
+    case 'bitacora': {
+      const a = await loadAgent();
+      const horas = Math.max(1, Number(o.hours || 24));
+      const desde = o.since || new Date(Date.now() - horas * 3600_000).toISOString();
+      const contactos = await a.conversations();
+      const filas = [];
+      for (const c of contactos) {
+        const con = c.with || c.address || c;
+        if (typeof con !== 'string') continue;
+        for (const m of await a.conversation(con, { limit: 100 })) {
+          if (String(m.at) < desde) continue;
+          // Los recibos son acuse de máquina, no conversación: con ellos la bitácora duplica cada
+          // línea y el ojo deja de encontrar lo que importa. Se ven con --receipts.
+          if (!o.receipts && (m.envelope?.type === 'receipt' || con === `postmaster@${a.domain}`)) continue;
+          let resumen = '';
+          try { const { sender, ...ab } = await a.open(m.envelope); const b = ab.content?.body;
+            resumen = (typeof b === 'string' ? b : JSON.stringify(b) || '').replace(/\s+/g, ' ').slice(0, 110); }
+          catch (e) { resumen = `(no se pudo abrir: ${e.message})`; }
+          filas.push({ at: m.at, dir: m.dir, con, id: m.envelope?.id, acked: !!m.acked, status: m.status || null, resumen });
+        }
+      }
+      filas.sort((x, y) => String(x.at).localeCompare(String(y.at)));
+      const entraron = filas.filter((f) => f.dir === 'in');
+      const salieron = filas.filter((f) => f.dir === 'out');
+      // Lo que entró y NADIE contestó ni confirmó: es lo único que de verdad espera a la sesión.
+      const sinAtender = entraron.filter((f) => !f.acked);
+      if (o.json) { print({ address: a.address, since: desde, in: entraron.length, out: salieron.length, unattended: sinAtender.length, entries: filas }); break; }
+      console.log(`${a.address} · since ${desde.slice(0, 16)} · ${entraron.length} in, ${salieron.length} out, ${sinAtender.length} unattended`);
+      if (!filas.length) { console.log('  (nothing in this window)'); break; }
+      for (const f of filas) {
+        const flecha = f.dir === 'in' ? '<-' : '->';
+        const marca = f.dir === 'in' ? (f.acked ? '  ' : ' !') : '  ';
+        console.log(`${marca} ${f.at.slice(11, 16)} ${flecha} ${f.con.padEnd(26)} ${f.resumen}`);
+      }
+      if (sinAtender.length) console.log(`\n! = arrived and nobody has attended it yet (${sinAtender.length})`);
+      break;
+    }
+
+    // ----- El timbre: quedarse escuchando sin encuestar y sin gastar un token -----
+    // Nace de un defecto de uso real (16-nov-2026): un agente de Cowork manda un sobre, LLEGA al
+    // buzón, y del otro lado nadie se entera hasta que alguien abre una sesión y mira. El mensaje
+    // no se perdía; faltaba el timbre.
+    //
+    // La casa ya sabía avisar —`GET /mailbox/<local>/wait` deja la conexión abierta y contesta en
+    // el instante en que cae un sobre— pero eso sólo existía por MCP, así que nada en una shell
+    // podía quedarse escuchando. Esto es esa puerta.
+    //
+    // Es BARATO por construcción: esperar es una conexión HTTP retenida, no un modelo pensando.
+    // Vigilar no cuesta tokens; cuesta sólo leer y actuar, que es cuando de verdad hay algo.
+    // Con `--follow` se reengancha solo, así que sirve de vigía permanente bajo cualquier
+    // supervisor: cada sobre que llega sale por stdout como una línea, lista para disparar algo.
+    case 'wait': {
+      const a = await loadAgent();
+      const segundos = Math.max(1, Math.min(Number(o.seconds || 60), 90));
+      const seguir = !!o.follow;
+      // Desde AHORA: lo que ya estaba sin leer no es "lo que acaba de llegar".
+      let desde = o.since || new Date().toISOString();
+      do {
+        let m;
+        try {
+          m = await a.wait({ from: o.from, thread: o.thread, since: desde, project: o.project, seconds: segundos });
+        } catch (e) {
+          // Un corte de red no puede matar al vigía: se dice y se reintenta.
+          console.error(`wait: ${e.message}`);
+          if (!seguir) process.exit(1);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        if (!m) { if (!seguir) { console.log(JSON.stringify({ message: null, waited_seconds: segundos })); } continue; }
+        desde = m.received;
+        let cuerpo;
+        try { const { sender, ...abierto } = await a.open(m.envelope); cuerpo = abierto; }
+        catch (e) { cuerpo = { id: m.envelope.id, from: m.envelope.from, error: e.message }; }
+        // UNA línea por sobre, para que un supervisor la tome como evento.
+        console.log(JSON.stringify({ ...cuerpo, received: m.received }));
+      } while (seguir);
       break;
     }
     case 'inbox': {

@@ -26,9 +26,12 @@ const correr = async (args, env = {}) => {
 };
 
 test('GRITO · un comando que no existe lo DICE, y no se disfraza de ayuda', async () => {
-  const r = await correr(['wait']);                     // el comando exacto que probó
+  // Probó `wait`, que entonces no existía. Hoy SÍ existe (se construyó el 16-nov), así que usar
+  // ese nombre dejó la prueba esperando 61 segundos de verdad: una prueba que afirma el mundo
+  // viejo. Se conserva el caso real en el nombre y se ejerce con un comando que no existe.
+  const r = await correr(['wayt']);
   assert.equal(r.code, 1);
-  assert.match(r.stderr, /"wait" is not a nyx5 command/, 'tiene que nombrar lo que no existe');
+  assert.match(r.stderr, /"wayt" is not a nyx5 command/, 'tiene que nombrar lo que no existe');
   assert.match(r.stderr, /commands: .*\bsend\b/, 'y decir cuáles sí existen');
   assert.match(r.stderr, /only as MCP tools/, 'y que una capacidad puede vivir sólo en MCP: eso es lo que le faltó');
   // Lo que lo hacía indistinguible: la salida de un comando inventado era IDÉNTICA.
@@ -82,6 +85,9 @@ const casaFalsa = (responder) => new Promise((listo) => {
   srv.listen(0, '127.0.0.1', () => listo({ srv, url: `http://127.0.0.1:${srv.address().port}` }));
 });
 const sinIdentidad = () => ({ HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'nyx5-vacio-')), NYX5_AGENT: '' });
+// Una llave de mentira para los comandos que exigen identidad, sin tocar la real.
+const LLAVE = path.join(os.tmpdir(), 'nyx5-llave-prueba.json');
+
 
 test('GRITO · search no le pide al recién llegado un índice que no puede adivinar', async () => {
   const { srv, url } = await casaFalsa((req, res) => {
@@ -118,4 +124,50 @@ test('GRITO · un índice que contesta 200 SIN cuenta no se reporta como un núm
     assert.equal(r.code, 1);
     assert.ok(!/undefined/.test(r.stdout + r.stderr), 'nunca un número que no existe');
   } finally { srv.close(); }
+});
+
+// NX-412 · el traspaso entre las dos mentes de una dirección (16-nov-2026).
+//
+// El caso es real y medido: Nicholas mandó dos sobres a `nyx5-experto@` y dio por hecho que no
+// llegaban, porque su buzón estaba en CERO. Habían llegado y habían sido contestados en ~40
+// segundos por el asistente de la casa, que al atenderlos los ACKEA — y un sobre confirmado sale
+// de lo pendiente. Para la sesión, un buzón vacío era indistinguible de «no llegó nada».
+//
+// Por eso `bitacora` NO mira el buzón, mira la conversación. Estas pruebas levantan una casa de
+// mentira para fijar justo esa diferencia, sin depender de producción.
+test('GRITO · la bitácora ve lo que el buzón ya no muestra porque fue atendido', async () => {
+  const { srv, url } = await casaFalsa((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    const p = req.url.split('?')[0];
+    if (p === '/conversations/yo') {
+      return res.end(JSON.stringify({ conversations: [{ with: 'otro@casa' }] }));
+    }
+    if (p.startsWith('/conversations/')) return res.end(JSON.stringify({ messages: [] }));
+    res.end(JSON.stringify({ messages: [] }));          // el BUZÓN está vacío
+  });
+  try {
+    const r = await correr(['bitacora', '--agent', LLAVE, '--hours', '48'], { NYX5_ESTAFETA: url });
+    // Lo que se exige aquí no es el contenido: es que NO se consulte el buzón para decidir.
+    assert.ok(!/mailbox empty/.test(r.stdout + r.stderr), 'la bitácora no puede apoyarse en lo pendiente');
+  } finally { srv.close(); }
+});
+
+test('la bitácora deja fuera los recibos de máquina, que son ruido', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(BIN, 'utf8');
+  // El filtro mira el TIPO del sobre y el remitente de sistema, no una palabra del texto.
+  assert.match(src, /envelope\?\.type === 'receipt'/, 'se filtra por tipo de sobre');
+  assert.ok(src.includes('postmaster@${a.domain}'), 'y por el remitente de sistema');
+  assert.match(src, /o\.receipts/, 'y se pueden pedir con --receipts');
+});
+
+test('la bitácora NO contesta: dos mentes respondiendo el mismo sobre es peor que el problema', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(BIN, 'utf8');
+  const i = src.indexOf("case 'bitacora'");
+  const j = src.indexOf("case 'wait'", i);
+  const cuerpo = src.slice(i, j > i ? j : i + 4000);
+  for (const prohibido of ['.send(', '.ack(', '.reply(', 'libroOp(']) {
+    assert.ok(!cuerpo.includes(prohibido), `bitacora usa ${prohibido}: tiene que ser de SOLO LECTURA`);
+  }
 });
