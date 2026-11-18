@@ -8,6 +8,7 @@ import { generateKeys, signObject, verifyObject, signBytes, canonical, b64u, uui
 import { aadDe as aadBlob } from './adjuntos.js';
 import { Libro, MEDIA } from '../libro/libro.js';
 import { pruebaDeAceptacion } from '../libro/verifica.js';
+import { MEDIA_ENCARGO } from '../libro/encargos.js';
 import { MEDIA_COBRO, MEDIA_COBRO_CONFIRMACION, cobroValido, confirmacionValida, extensionDeCobro, razonParaNoCobrar } from './cobro.js';
 
 const iso = (t = Date.now()) => new Date(t).toISOString();
@@ -462,6 +463,23 @@ export class Agent {
   // Notaría (NX-601): la casa sella el hash de un documento con fecha y firma; el sello llega como
   // recibo. Gratis; el mismo hash sellado dos veces por el mismo agente devuelve el mismo sello.
   notarize(house, { sha256, name, media, note }) { return this.libroOp(house, { op: 'notarize', sha256, name, media, note }); }
+
+  // ----- Encargos: trabajo interno, sin dinero (migrations/0010, src/libro/encargos.js) -----
+  // Sobre firmado y SIN CIFRAR a encargos@<casa>, por la misma razón que una op del Libro: la
+  // casa tiene que leer el cuerpo para ejecutarlo, y el invariante 8 dice que lo cifrado no lo
+  // lee la estafeta. Un encargo no es secreto para la casa que lo administra; si algo tiene que
+  // serlo, va en un mensaje aparte entre las partes.
+  encargoOp(house, body, opts = {}) {
+    return this.send({ to: `encargos@${house}`, type: 'task', media: MEDIA_ENCARGO, body, encrypt: false, ...opts });
+  }
+  // El id del encargo es el id del SOBRE que lo pidió: `crearEncargo` devuelve ese id, así que
+  // quien lo manda ya sabe cómo se va a llamar sin tener que esperar una respuesta.
+  encargar(house, { concept, detail, assignee, parent, verify } = {}) {
+    return this.encargoOp(house, { op: 'crear', concept, detail, assignee, parent, verify });
+  }
+  encargoPaso(house, paso, encargo, extra = {}) { return this.encargoOp(house, { op: paso, encargo, ...extra }); }
+  // El tablero, leído de la casa: lo que pedí, lo que me pidieron y los árboles que empecé.
+  async tablero(house, { state } = {}) { return this._callAt(house, 'GET', `/encargos${state ? `?state=${encodeURIComponent(state)}` : ''}`); }
 
   // Lecturas directas (sin pasar por correo) en la casa indicada; por defecto, la propia estafeta.
   async balance(house) { return this._callAt(house, 'GET', `/libro/cuenta/${encodeURIComponent(this.address)}`); }

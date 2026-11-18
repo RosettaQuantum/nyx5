@@ -21,6 +21,10 @@ import { LibroError } from './errores.js';
 
 const iso = (t = Date.now()) => new Date(t).toISOString();
 
+// El sobre que pide o mueve un encargo. Tipo propio, no `op` del Libro: así ninguna lectura del
+// Libro lo encuentra por error y el rechazo dice de qué mostrador se trata.
+export const MEDIA_ENCARGO = 'application/nyx5.encargo+json';
+
 export const ESTADOS = Object.freeze(['open', 'taken', 'delivered', 'done', 'cancelled']);
 // Lo que el tablero mira: un encargo cerrado no vuelve a aparecer salvo que se pida.
 export const ABIERTOS = Object.freeze(['open', 'taken', 'delivered']);
@@ -65,6 +69,11 @@ export function crearEncargo(pedido, ahora = Date.now()) {
   const e = {
     nyx5: '1', kind: 'encargo', id: String(id),
     from: String(from),
+    // `owner` es el `from` de la RAÍZ, heredado al nacer. Existe para que quien empezó un árbol
+    // pueda verlo entero sin que la lectura tenga que subir la cadena de padres consulta por
+    // consulta: un hijo que `sigo-cto@` le pide a `sigo-editor@` sigue siendo visible para quien
+    // encargó lo de arriba. Es la suma padre->hijos del tablero, en un campo y un predicado.
+    owner: parent ? String(parent.owner || parent.from) : String(from),
     assignee: assignee ? String(assignee) : null,
     parent_id: parent ? String(parent.id) : null,
     depth: parent ? Number(parent.depth || 0) + 1 : 0,
@@ -179,13 +188,22 @@ export function atascado(e, ahora = Date.now(), topes = TOPES_H) {
   return { horas, tope, razon };
 }
 
+/**
+ * ¿Puede este agente ver este encargo? Las tres son partes de verdad: quien lo pidió, quien lo
+ * hace, y quien empezó el árbol. Un cuarto que pase por aquí no ve nada: la lista blanca es la
+ * del encargo, no la de la casa.
+ */
+export function visiblePara(e, quien) {
+  return e.from === quien || e.assignee === quien || (e.owner || e.from) === quien;
+}
+
 /** El tablero: lo abierto, agrupado, con lo atascado señalado y el progreso de cada padre. */
 export function tablero(encargos = [], ahora = Date.now(), topes = TOPES_H) {
   const abiertos = encargos.filter((e) => ABIERTOS.includes(e.state));
   const hijosDe = new Map();
   for (const e of encargos) if (e.parent_id) hijosDe.set(e.parent_id, [...(hijosDe.get(e.parent_id) || []), e]);
   const filas = abiertos.map((e) => ({
-    id: e.id, state: e.state, concept: e.concept, from: e.from, assignee: e.assignee,
+    id: e.id, state: e.state, concept: e.concept, from: e.from, assignee: e.assignee, owner: e.owner || e.from,
     parent_id: e.parent_id || null, updated: e.updated,
     atascado: atascado(e, ahora, topes),
     progreso: hijosDe.has(e.id) ? progreso(hijosDe.get(e.id)) : null,
