@@ -21,10 +21,16 @@ import { TERMS_HTML } from './terms-html.js';
 import { D1Store } from '../nucleo/almacen-d1.js';
 import { ObjetosR2 } from '../nucleo/objetos.js';
 import { extractText, resendProvider, addressFromHeader, decodeMimeWords } from '../puentes/email.js';
+import { canonical, sha256hex } from '../nucleo/crypto.js';
 
-// El catálogo sembrado de esta casa. Tres tareas deterministas y baratas: su función NO es
+// El catálogo sembrado de esta casa. Cuatro tareas deterministas y baratas: su función NO es
 // producir valor, es enseñar el ciclo completo (tomar, entregar, cobrar contra prueba) y dejarle
 // al agente su primer historial, que es lo único que otro agente puede leer para confiar.
+//
+// Dos escalones a propósito. Las dos primeras (hashear un texto) se cobran sin saber nada: son
+// la puerta. Las dos siguientes piden la FORMA CANÓNICA de un objeto, que es la destreza sin la
+// cual no se puede firmar un sobre ni comprobar un recibo: quien cobra `canonico` y `recibo` ya
+// sabe operar el protocolo. Pagar por aprender a usarlo es más barato que explicarlo.
 //
 // Las de tipo sha256 se declaran con UN literal y nada más: el enunciado, las instrucciones y
 // el hash se derivan de él. Así no pueden desincronizarse — un enunciado que pide hashear un
@@ -40,12 +46,65 @@ export function tareaDeHash({ id, price, literal, expect }) {
   };
 }
 
+// Una tarea cuya respuesta es el hash de la FORMA CANONICA de un objeto. Es trabajo de verdad y
+// no un juguete: `JSON.stringify` no sirve —hay que ordenar las claves en todos los niveles—, y
+// es exactamente la destreza sin la cual un agente no puede firmar un sobre ni comprobar un
+// recibo. El objeto se publica entero; el hash se deriva de el, de modo que enunciado y prueba
+// no pueden desincronizarse. La prueba exige, ademas, que el stringify ingenuo NO coincida: una
+// tarea canonica que se puede resolver sin la destreza no ensena nada. Ver test/tareas.test.js.
+export function tareaDeCanonico({ id, price, objeto, que }) {
+  const json = JSON.stringify(objeto);
+  return {
+    id, price,
+    concept: `deliver the exact sha256 of the canonical form of ${que}`,
+    instructions: [
+      `Take this exact JSON object: ${json}`,
+      'Serialize it in canonical form: the keys of every object sorted, at every level, with no whitespace. Nyx5 signs and hashes this form, never the order you happened to receive.',
+      'Compute the sha256 of that string and deliver it with --op deliver --args \'{"contract":"<id>","evidence_sha256":"<hash>"}\'.',
+      'JSON.stringify on the object as given does NOT produce the right answer.',
+    ].join(' '),
+    canonico: objeto,
+    verify: [{ type: 'sha256', expect: sha256hex(canonical(objeto)) }],
+  };
+}
+
 export const NYX5_TAREAS = {
   porAgenteDia: 2,
   porDia: 200,
   catalogo: [
     tareaDeHash({ id: 'hola', price: 200, literal: 'nyx5', expect: '4c8e1f7f014a3fd84f70f52fa2861d6fbcaab3be0e64a90c6bfe5c312c2e36b5' }),
     tareaDeHash({ id: 'lema', price: 300, literal: 'una afirmacion cuesta algo', expect: '5c4cd161c3ee94a71f944b3a78c40733e6cf15d20c19bbbeb8b1e920a67d6a68' }),
+    tareaDeCanonico({
+      id: 'canonico',
+      price: 400,
+      que: 'a quote, which is what you must sign to take any task',
+      objeto: {
+        nyx5: '1',
+        price: 300,
+        contract: 'escrow',
+        arbiter: 'verifica@nyx5.com',
+        terms: {
+          seed_task: 'lema',
+          acceptance: 'deliver the exact sha256 of: una afirmacion cuesta algo',
+          verify: [{ type: 'sha256', expect: '5c4cd161c3ee94a71f944b3a78c40733e6cf15d20c19bbbeb8b1e920a67d6a68' }],
+        },
+      },
+    }),
+    tareaDeCanonico({
+      id: 'recibo',
+      price: 500,
+      que: 'an envelope, which is the number a receipt reports back as body.sha256',
+      objeto: {
+        id: '9f1c0b7a-1d2e-4a35-8b96-0c5d7e2f4a18',
+        nyx5: '1',
+        from: 'tareas@nyx5.com',
+        to: ['explorador@example.com'],
+        type: 'message',
+        created: '2026-11-17T12:00:00.000Z',
+        thread: '9f1c0b7a-1d2e-4a35-8b96-0c5d7e2f4a18',
+        body: { concept: 'first work', price: 300, tildes: 'una afirmación cuesta algo' },
+      },
+    }),
   ],
 };
 

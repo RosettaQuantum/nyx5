@@ -190,13 +190,29 @@ test('el catálogo sembrado de nyx5.com es válido y sus hashes corresponden a s
 
   // Una sola fuente: cada tarea de hash declara su literal, y de ahí salen enunciado y hash.
   // Si alguien cambia uno sin el otro, esto falla: no hay dónde desincronizarse en silencio.
-  const deHash = t.catalogo.filter((x) => x.verify[0].type === 'sha256');
+  // Se agrupa por FUENTE declarada, no por tipo de prueba: dos tareas pueden comprobarse con
+  // sha256 y derivar su hash de cosas distintas (un texto, o la forma canónica de un objeto).
+  const deHash = t.catalogo.filter((x) => x.literal != null);
   assert.ok(deHash.length >= 2, 'se esperaban tareas de hash en el catálogo');
   for (const tarea of deHash) {
     assert.ok(tarea.literal, `la tarea ${tarea.id} no declara el literal a hashear`);
     assert.equal(tarea.verify[0].expect, sha256hex(tarea.literal), `el hash de "${tarea.id}" no corresponde a ${JSON.stringify(tarea.literal)}: nadie podría cobrarla`);
     assert.ok(tarea.concept.includes(tarea.literal), `el enunciado de "${tarea.id}" no dice qué texto hashear`);
     assert.ok(tarea.instructions.includes(JSON.stringify(tarea.literal)), `las instrucciones de "${tarea.id}" no muestran el literal exacto`);
+  }
+
+  // Las tareas canónicas: mismo fallo silencioso, misma defensa, y una exigencia más. El hash
+  // se recalcula desde el objeto publicado, y además se comprueba que el `JSON.stringify`
+  // ingenuo NO dé la respuesta: una tarea canónica que se resuelve sin ordenar las claves no
+  // enseña la destreza por la que se está pagando, y ese fallo tampoco grita solo.
+  const { canonical } = await import('../src/nucleo/crypto.js');
+  const deCanonico = t.catalogo.filter((x) => x.canonico != null);
+  assert.ok(deCanonico.length >= 2, 'se esperaban tareas canónicas en el catálogo');
+  for (const tarea of deCanonico) {
+    assert.equal(tarea.verify[0].expect, sha256hex(canonical(tarea.canonico)), `el hash de "${tarea.id}" no es el de la forma canónica de su objeto: nadie podría cobrarla`);
+    assert.notEqual(JSON.stringify(tarea.canonico), canonical(tarea.canonico), `el objeto de "${tarea.id}" ya está canónico tal como se publica: la tarea se cobra sin la destreza que dice enseñar`);
+    assert.ok(tarea.instructions.includes(JSON.stringify(tarea.canonico)), `las instrucciones de "${tarea.id}" no muestran el objeto exacto a canonicalizar`);
+    assert.ok(/sorted/.test(tarea.instructions), `las instrucciones de "${tarea.id}" no dicen que las claves van ordenadas`);
   }
 
   // Ninguna tarea sembrada puede pagar sin prueba, y ninguna prueba puede necesitar shell
