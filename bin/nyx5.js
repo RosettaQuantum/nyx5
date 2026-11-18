@@ -23,6 +23,7 @@
 //   nyx5 encargo  --op tomar|entregar|cerrar|devolver|rendirse|rechazar|cancelar --id <id> [--note "..."]
 //   nyx5 senal    --id <id|contrato> --kind input-required|auth-required|resumed|progress [--note "por que"]
 //   nyx5 trabajo  [--state working,input-required] [--json]   (TODO: contratos Y encargos juntos)
+//   nyx5 consola  [--json]                      (abre el tablero en el navegador, 12 h; la llave no sale de aqui)
 //   nyx5 estafeta --domain alfa.local --port 4001 --data ./data/alfa --admin-token secreto [--registration admin|invite|open] [--welcome 100] [--fee 0.10]
 //   nyx5 keygen   --address nicolas@alfa.local --estafeta http://127.0.0.1:4001 --out ./keys/nicolas.json
 //   nyx5 register --agent ./keys/nicolas.json --admin-token secreto [--policy open|allowlist|pow|stamp] [--allow a@b,c@d] [--pow-bits 16] [--webhook URL] [--mcp URL] [--a2a URL]
@@ -453,6 +454,20 @@ try {
     }
     // La vista unificada (fase 3). Como el tablero, la CALCULA la casa: dos superficies que la
     // calculen por su cuenta terminan mostrando dos tableros distintos.
+    // La consola: la llave de aqui EMITE una sesion corta y se queda aqui. El navegador lleva un
+    // token opaco que solo lee. Si se filtra, lo que se filtro caduca solo en doce horas.
+    case 'consola': {
+      const a = await loadAgent();
+      const r = await a.abrirConsola(o.house || a.domain);
+      if (o.json) { print(r); break; }
+      console.log(`Board for ${r.address}, open until ${String(r.vence).slice(0, 16).replace('T', ' ')} UTC.\n`);
+      console.log(r.url);
+      console.log(`\nOpen it in a browser. The token travels in the URL fragment (#), which the`);
+      console.log(`browser never sends to the server: it stays out of the access log. To close`);
+      console.log(`the session before it expires:`);
+      console.log(`  curl -X DELETE -H "authorization: Nyx5-Consola ${r.token}" ${o.house ? `https://${o.house}` : a.estafeta}/consola/sesion`);
+      break;
+    }
     case 'trabajo': {
       const a = await loadAgent();
       const t = await a.trabajo(o.house || a.domain, { state: o.state });
@@ -689,7 +704,7 @@ try {
       // shell. Lo midió un agente que llegó de cero el 5-nov-2026: probó `wait`, recibió la ayuda
       // completa, y tuvo que hablarle JSON-RPC al subcomando `mcp` para averiguar que `wait` sólo
       // existe por MCP. Ahora se dice, por stderr, y se sugiere lo más parecido.
-      const ayuda = fs.readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 39).map((l) => l.replace(/^\/\/ ?/, '')).join('\n');
+      const ayuda = fs.readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 40).map((l) => l.replace(/^\/\/ ?/, '')).join('\n');
       if (!cmd) { console.log(ayuda); process.exit(0); }
       console.error(`error: "${cmd}" is not a nyx5 command.`);
       const cerca = COMANDOS.filter((c) => c.startsWith(cmd.slice(0, 3)) || cmd.startsWith(c.slice(0, 3)));

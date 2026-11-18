@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Tablero</title>
+<style>
+  :root{
+    --papel:#fbfbf9; --panel:#fff; --linea:#e4e4df; --tinta:#16181b; --suave:#6b6f76;
+    --alerta:#b4432f; --espera:#b8892e; --ok:#0f8b7e;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --papel:#17181a; --panel:#1e1f22; --linea:#2e3034; --tinta:#eceded; --suave:#9aa0a6; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--papel);color:var(--tinta);
+    font:15px/1.5 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif}
+  .caja{max-width:980px;margin:0 auto;padding:16px}
+  header{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between;margin:8px 0 18px}
+  h1{font-size:1.15rem;margin:0;font-weight:600}
+  .quien{color:var(--suave);font-size:.85rem}
+  .cifras{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 18px}
+  .cifra{background:var(--panel);border:1px solid var(--linea);border-radius:10px;padding:10px 14px;min-width:110px}
+  .cifra b{display:block;font-size:1.5rem;line-height:1.1;font-weight:600}
+  .cifra span{color:var(--suave);font-size:.78rem}
+  .cifra.urge b{color:var(--alerta)}
+  ul{list-style:none;margin:0;padding:0}
+  li{background:var(--panel);border:1px solid var(--linea);border-radius:10px;padding:12px 14px;margin:0 0 8px}
+  li.urge{border-left:3px solid var(--alerta)}
+  li.cerrado{opacity:.55}
+  .fila1{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+  .titulo{font-weight:500;flex:1 1 320px;min-width:0}
+  .et{font-size:.72rem;border:1px solid var(--linea);border-radius:999px;padding:1px 8px;color:var(--suave);white-space:nowrap}
+  .et.estado{color:var(--tinta)}
+  .et.plata{color:var(--ok)}
+  .razon{color:var(--alerta);font-size:.85rem;margin:6px 0 0}
+  .meta{color:var(--suave);font-size:.78rem;margin:5px 0 0}
+  .meta.id{overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem}
+  .aviso{background:var(--panel);border:1px solid var(--linea);border-left:3px solid var(--espera);
+    border-radius:10px;padding:14px;margin:12px 0}
+  code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--papel);
+    border:1px solid var(--linea);border-radius:6px;padding:2px 6px}
+  footer{color:var(--suave);font-size:.78rem;margin:22px 0 8px;text-align:center}
+</style>
+</head>
+<body>
+<div class="caja">
+  <header>
+    <h1>Tablero</h1>
+    <span class="quien" id="quien"></span>
+  </header>
+  <div id="cuerpo"><p class="quien">Cargando…</p></div>
+  <footer id="pie"></footer>
+</div>
+
+<script>
+// El token llega en el FRAGMENTO de la URL. El fragmento no se manda al servidor: no queda en el
+// registro de accesos, ni en el referrer, ni en el historial que se sincroniza. Se saca de la
+// barra en cuanto se lee, y se guarda por pestaña: muere al cerrarla y caduca solo en 12 horas.
+const CLAVE = 'nyx5.consola';
+let token = null;
+try {
+  const m = /[#&]t=([A-Za-z0-9_-]+)/.exec(location.hash || '');
+  if (m) { token = m[1]; sessionStorage.setItem(CLAVE, token); history.replaceState(null, '', location.pathname); }
+  else token = sessionStorage.getItem(CLAVE);
+} catch { /* sin sessionStorage igual funciona mientras no se recargue */ }
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const corto = (d) => (d || '').split('@')[0];
+const hace = (iso) => {
+  const h = Math.floor((Date.now() - Date.parse(iso)) / 3600000);
+  if (!isFinite(h)) return '';
+  if (h < 1) return 'hace menos de una hora';
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} ${d === 1 ? 'día' : 'días'}`;
+};
+
+function pedirSesion(msg) {
+  $('quien').textContent = '';
+  $('cuerpo').innerHTML = `<div class="aviso"><p><b>${esc(msg)}</b></p>
+    <p>Abre una sesión nueva desde tu computador y vuelve a entrar por el enlace que imprime:</p>
+    <p><code>nyx5 consola</code></p>
+    <p class="quien">La llave nunca sale de tu computador: esta pantalla sólo lee, y la sesión caduca sola.</p></div>`;
+  $('pie').textContent = '';
+}
+
+function pintar(d) {
+  $('quien').textContent = d.address;
+  const cifra = (n, t, urge) => `<div class="cifra${urge && n ? ' urge' : ''}"><b>${n}</b><span>${t}</span></div>`;
+  const cabeza = `<div class="cifras">
+    ${cifra(d.abiertos, 'abiertos', false)}
+    ${cifra(d.te_necesitan, 'te necesitan', true)}
+    ${cifra(d.bloqueados, 'con señal', true)}
+    ${cifra(d.atascados, 'atascados', true)}
+  </div>`;
+
+  if (!d.filas.length) {
+    $('cuerpo').innerHTML = cabeza + '<div class="aviso">No hay trabajo abierto. Nada que mirar, y eso también es un dato.</div>';
+    return;
+  }
+
+  const filas = d.filas.map((f) => {
+    const urge = f.abierto && (f.senal || f.atascado);
+    const etiquetas = [
+      `<span class="et">${esc(f.tipo)}</span>`,
+      `<span class="et estado">${esc(f.state)}</span>`,
+      f.nativo && f.nativo !== f.state ? `<span class="et">${esc(f.nativo)}</span>` : '',
+      f.monto != null ? `<span class="et plata">${f.monto} tok</span>` : '',
+      f.project ? `<span class="et">${esc(f.project)}</span>` : '',
+    ].join('');
+    const razon = f.senal
+      ? `<p class="razon">${esc(f.senal.kind)}${f.senal.reason ? ': ' + esc(f.senal.reason) : ''}</p>`
+      : f.atascado ? `<p class="razon">${f.atascado.horas} h sin moverse — ${esc(f.atascado.razon)}</p>` : '';
+    const progreso = f.progreso ? ` · ${f.progreso.completed}/${f.progreso.total} hecho` : '';
+    return `<li class="${urge ? 'urge' : ''}${f.abierto ? '' : ' cerrado'}">
+      <div class="fila1"><span class="titulo">${esc(f.titulo)}</span>${etiquetas}</div>
+      ${razon}
+      <p class="meta">${esc(corto(f.quien) || 'sin dueño')} · pedido por ${esc(corto(f.de))} · ${esc(hace(f.actualizado))}${progreso}</p>
+      <p class="meta id">${esc(f.id)}</p>
+    </li>`;
+  }).join('');
+
+  $('cuerpo').innerHTML = cabeza + '<ul>' + filas + '</ul>';
+  $('pie').textContent = `Actualizado ${new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })} · se refresca solo cada minuto`;
+}
+
+async function cargar() {
+  if (!token) return pedirSesion('No hay sesión abierta.');
+  let r;
+  try {
+    r = await fetch('/consola/datos', { headers: { authorization: 'Nyx5-Consola ' + token } });
+  } catch {
+    $('pie').textContent = 'Sin conexión. Se reintenta en un minuto.';
+    return;
+  }
+  if (r.status === 401) { try { sessionStorage.removeItem(CLAVE); } catch {} token = null; return pedirSesion('La sesión venció.'); }
+  if (!r.ok) { $('pie').textContent = `La casa contestó ${r.status}. Se reintenta en un minuto.`; return; }
+  pintar(await r.json());
+}
+
+cargar();
+setInterval(cargar, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) cargar(); });
+</script>
+</body>
+</html>

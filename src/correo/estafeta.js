@@ -33,6 +33,8 @@ import { MEDIA_ENCARGO, PASOS, aplicarPaso, crearEncargo, senalarEncargo, sinPla
 import { vista } from '../libro/vista.js';
 import { datosInforme, datosEmbudo, informeHtml } from '../libro/informe.js';
 import { APP_HTML } from '../plataformas/app-html.js';
+import { CONSOLA_HTML } from '../plataformas/consola-html.js';
+import * as consola from './consola.js';
 import { SPEC_HTML, LLMS_TXT } from '../plataformas/spec-html.js';
 import { HOME_HTML } from '../plataformas/home-html.js';
 import { OG_PNG_B64 } from '../plataformas/og-png.js';
@@ -2200,6 +2202,41 @@ export class Estafeta {
         return { status: 200, body: HOME_HTML.replace('<!--VIVO-->', vivo), contentType: 'text/html; charset=utf-8' };
       }
       if (rx.method === 'GET' && (path === '/app' || path === '/app/')) return { status: 200, body: APP_HTML, contentType: 'text/html; charset=utf-8' };
+
+      // ----- La consola: mirar el tablero desde un navegador sin mover la llave -----
+      // Tres rutas y cada una con su puerta distinta, a proposito:
+      //
+      //   POST /consola/sesion   firma Nyx5 (la llave del Mac) -> emite un token corto
+      //   GET  /consola          publico: es HTML sin un solo dato adentro
+      //   GET  /consola/datos    token de consola -> la vista unificada de ESA direccion
+      //
+      // La pagina se sirve sin autenticar porque no trae nada: el token llega por el fragmento de
+      // la URL, que el navegador NO manda al servidor, y los datos los pide ella aparte. Servir el
+      // HTML con el token dentro seria meter la credencial en el registro de accesos.
+      if (rx.method === 'POST' && path === '/consola/sesion') {
+        const who = await this._authenticate(rx, path);
+        const { token, vence } = await consola.abrir(this.store, who.address);
+        await this._evento('consola_sesion', who.address, { vence });
+        // El token se devuelve UNA vez. Despues solo vive su hash: ni la casa lo puede releer.
+        return send(201, { address: who.address, vence, url: `${this.publicUrl || `https://${this.domain}`}/consola#t=${token}`, token });
+      }
+      if (rx.method === 'GET' && (path === '/consola' || path === '/consola/')) {
+        return { status: 200, body: CONSOLA_HTML, contentType: 'text/html; charset=utf-8', headers: { 'x-robots-tag': 'noindex, nofollow', 'cache-control': 'no-store' } };
+      }
+      if (rx.method === 'GET' && path === '/consola/datos') {
+        const address = await consola.dueno(this.store, consola.tokenDe(rx), now());
+        // 401 a todo lo que no sea una sesion viva: token raro, vencido o inventado dan lo MISMO,
+        // para no decirle a quien prueba si acerto la forma.
+        if (!address) return send(401, { reason: 'open a session with `nyx5 consola` on your computer' });
+        const [contratos, encargos] = await Promise.all([this.store.libroListContracts(), this.store.encargoList()]);
+        return { ...send(200, { address, ...vista({ contratos, encargos, para: address, ahora: now() }) }), headers: { 'cache-control': 'no-store' } };
+      }
+      if (rx.method === 'DELETE' && path === '/consola/sesion') {
+        // Cerrar no exige firma: quien tiene el token puede soltarlo, y eso es bueno — si se filtro,
+        // el que lo tenga en la mano puede apagarlo sin pedirle nada a nadie.
+        const ok = await consola.cerrar(this.store, consola.tokenDe(rx));
+        return send(ok ? 200 : 404, { closed: ok });
+      }
       // La especificación en una página, indexable. Se genera desde docs/SPEC.md (build:spec).
       if (rx.method === 'GET' && (path === '/spec' || path === '/spec/')) return { status: 200, body: SPEC_HTML, contentType: 'text/html; charset=utf-8' };
       // Términos de ESTA casa. Se sirven solo si el operador los enciende (`terms.enabled`):

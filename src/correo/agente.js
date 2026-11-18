@@ -483,6 +483,8 @@ export class Agent {
   // La senal de un CONTRATO va al Libro, porque el contrato vive ahi.
   senalarContrato(house, contract, kind, reason = null) { return this.libroOp(house, { op: 'signal', contract, kind, reason }); }
   // La vista unificada: todo el trabajo, hable de dinero o no.
+  // La sesion de la consola: la firma la emite, el navegador solo la lleva.
+  async abrirConsola(house) { return this._callAt(house, 'POST', '/consola/sesion'); }
   async trabajo(house, { state } = {}) { return this._callAt(house, 'GET', `/trabajo${state ? `?state=${encodeURIComponent(state)}` : ''}`); }
   // El tablero, leído de la casa: lo que pedí, lo que me pidieron y los árboles que empecé.
   async tablero(house, { state } = {}) { return this._callAt(house, 'GET', `/encargos${state ? `?state=${encodeURIComponent(state)}` : ''}`); }
