@@ -100,7 +100,7 @@ test('sin crédito: contesta cuánto falta y NO llama a la API', async () => {
   const n = pedidos.length, t0 = Date.now();
   await cliente.send({ to: QA, body: 'quiero un informe del motor' });
   const cuerpo = await cuerpoDe(cliente, await respuestaA(cliente, t0));
-  assert.equal(cuerpo, `Necesitas 400 tokens de crédito: paga a ${QA} con \`pay\` en libro@${H}; tienes 0.`);
+  assert.equal(cuerpo, `You need 400 tokens of credit: pay ${QA} with \`pay\` at libro@${H}; you have 0.`);
   assert.equal(pedidos.length, n, 'sin crédito no se gasta');
   assert.equal((await casa.store.listMail('qa')).length, 0, 'la pedida queda confirmada');
 });
@@ -113,7 +113,7 @@ test('con crédito: llama, descuenta y el pie dice lo cobrado y lo que queda', a
   const cuerpo = await cuerpoDe(cliente, await respuestaA(cliente, t0));
   assert.equal(pedidos.length, n + 1, 'una llamada');
   assert.equal(pedidos.at(-1).body.system[0].text, 'Eres Spec: conviertes una pedida en contrato de aceptación.');
-  const m = /^(contrato \d+)\n\n---\nsha256: ([0-9a-f]{64})\n[^\n]+\ncobrado: 400 tokens · crédito restante: 600$/.exec(cuerpo);
+  const m = /^(contrato \d+)\n\n---\nsha256: ([0-9a-f]{64})\n[^\n]+\ncharged: 400 tokens · credit left: 600$/.exec(cuerpo);
   assert.ok(m, `pie inesperado: ${cuerpo}`);
   assert.equal(m[2], sha256hex(m[1]), 'el sha256 del pie es el del texto que lo precede');
   assert.equal(await consumido(cliente), 400);
@@ -150,16 +150,16 @@ test('Gate con contrato sellado: veredicto JSON firmado por la casa, cobra 400',
   assert.ok(verifyObject(v, casa.keys.sig), 'el veredicto lo firma la casa');
   assert.deepEqual([v.tipo, v.by, v.house, v.veredicto, v.spec_sha256, v.delivery_sha256, v.sealed_by], ['veredicto', QA, H, 'pass', c.spec_sha256, sha256hex(ENTREGA), cliente.address]);
   assert.equal(v.criterios.length, 3);
-  assert.match(cuerpo, /\ncobrado: 400 tokens · crédito restante: \d+$/);
+  assert.match(cuerpo, /\ncharged: 400 tokens · credit left: \d+$/);
   assert.equal(await consumido(cliente), antes + 400);
 });
 
 test('Gate sin sello, con hash que no coincide o con entrega vacía: rechazo sin llamar a la API ni cobrar', async () => {
   const antes = await consumido(cliente);
   const casos = [
-    [{ spec: 'contrato que nadie selló', spec_sha256: sha256hex('contrato que nadie selló'), delivery: { text: ENTREGA } }, /no está sellado en la notaría/],
+    [{ spec: 'contrato que nadie selló', spec_sha256: sha256hex('contrato que nadie selló'), delivery: { text: ENTREGA } }, /is not sealed in the notary/],
     [{ spec: SPEC + ' (alterado)', spec_sha256: sha256hex(SPEC), delivery: { text: ENTREGA } }, /no es .*: es [0-9a-f]{64}/],
-    [{ spec: SPEC, spec_sha256: sha256hex(SPEC), delivery: { text: '   ' } }, /delivery\.text está vacío/],
+    [{ spec: SPEC, spec_sha256: sha256hex(SPEC), delivery: { text: '   ' } }, /delivery\.text is empty/],
     [{ spec: SPEC, spec_sha256: sha256hex(SPEC), delivery: { text: ENTREGA, sha256: sha256hex('otra cosa') } }, /delivery\.sha256 no es/],
   ];
   for (const [body, esperado] of casos) {
@@ -176,7 +176,7 @@ test('abstención (JSON inválido, rechazo de la API, o fail sin evidencia) cobr
   await pagar(cliente, 3000);
   const c = await sellar(cliente, SPEC);
   const casos = [
-    ['esto no es JSON, es prosa', 'la respuesta del modelo no fue un JSON válido'],
+    ['esto no es JSON, es prosa', 'the model did not answer with valid JSON'],
     [{ veredicto: 'fail', criterios: [{ n: 1, cumple: true, evidencia: 'tiene título' }, { n: 2, cumple: null, evidencia: '' }], razon: 'no estoy seguro' }, 'no estoy seguro'],
     [{ veredicto: 'pass', criterios: [{ n: 1, cumple: true, evidencia: 'x' }, { n: 2, cumple: false, evidencia: 'falta la fuente' }], razon: 'contradictorio' }, 'contradictorio'],
   ];
@@ -189,14 +189,14 @@ test('abstención (JSON inválido, rechazo de la API, o fail sin evidencia) cobr
     assert.equal(v.veredicto, 'abstain', JSON.stringify(salida));
     assert.equal(v.razon, razon);
     assert.ok(verifyObject(v, casa.keys.sig));
-    assert.match(cuerpo, /\ncobrado: 200 tokens · crédito restante: \d+$/);
+    assert.match(cuerpo, /\ncharged: 200 tokens · credit left: \d+$/);
     assert.equal(await consumido(cliente), antes + 200, 'una abstención cobra la mitad');
   }
   proxima = { status: 200, json: { content: [], stop_reason: 'refusal', usage: { input_tokens: 0, output_tokens: 0 } } };
   const antes = await consumido(cliente), t0 = Date.now();
   await cliente.send({ to: QA, media: MEDIA_GATE, body: { ...c, delivery: { text: ENTREGA } } });
   const v = veredictoDe(await cuerpoDe(cliente, await respuestaA(cliente, t0)));
-  assert.deepEqual([v.veredicto, v.razon], ['abstain', 'la API rechazó evaluar esta entrega']);
+  assert.deepEqual([v.veredicto, v.razon], ['abstain', 'the API refused to evaluate this delivery']);
   assert.equal(await consumido(cliente), antes + 200);
 });
 
@@ -241,7 +241,7 @@ test('el crédito es por cliente: lo que pagó uno no lo gasta otro', async () =
   const n = pedidos.length, t0 = Date.now();
   await otro.send({ to: QA, body: 'quiero gastar el crédito del cliente' });
   const cuerpo = await cuerpoDe(otro, await respuestaA(otro, t0));
-  assert.match(cuerpo, /^Necesitas 400 tokens de crédito/);
+  assert.match(cuerpo, /^You need 400 tokens of credit/);
   assert.equal(pedidos.length, n);
 });
 
@@ -261,7 +261,7 @@ test('el candado por cliente: con otro reloj cobrándole, el turno se suelta y s
   await casa.store.kvDelete('asistente-cliente', `qa:${cliente.address}`);
   await admin('POST', '/admin/assistants/qa/resume');
   const r = await cliente.waitFor((e) => e.from === QA && e.in_reply_to === pendiente.envelope.id, { timeoutMs: 8000 });
-  assert.match((await cuerpoDe(cliente, r)), /cobrado: 400 tokens/, 'al soltarse el candado, se contesta y se cobra una vez');
+  assert.match((await cuerpoDe(cliente, r)), /charged: 400 tokens/, 'al soltarse el candado, se contesta y se cobra una vez');
 });
 
 test('validarGate y parsearVeredicto: gritan donde deben y callan donde deben', () => {
