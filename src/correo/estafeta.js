@@ -771,12 +771,35 @@ export class Estafeta {
   async revocarDelegado(subLocal, por) {
     const rec = await this.store.getAgent(subLocal);
     if (!rec?.delegation) throw Object.assign(new Error('no such subagent'), { status: 404 });
+    return this._revocarRecord(subLocal, rec, por, 'delegation_revoked');
+  }
+
+  // Retirar una dirección PROPIA de la casa, la haya creado un delegante o se haya registrado
+  // sola. Nace de un hueco real (17-nov-2026): `revoke` exigía `rec.delegation`, así que una
+  // dirección que entró por registro abierto no se podía retirar por ninguna puerta. Lo descubrí
+  // teniendo que limpiar 10 que una prueba mía registró por error en producción, y la única
+  // alternativa era editar la fila a mano: eso deja la certificación sin cubrir el cuerpo, es
+  // decir una tarjeta que ya no verifica. Retirar por corrupción no es retirar.
+  //
+  // Sólo la casa (token de admin). Y NUNCA una dirección de sistema: retirar `libro@` o
+  // `verifica@` rompería la casa entera, así que eso falla cerrado antes de tocar nada.
+  async retirarAgente(local, por) {
+    const rec = await this.store.getAgent(local);
+    if (!rec) throw Object.assign(new Error('no such agent'), { status: 404 });
+    if (this.isSystem(local)) throw Object.assign(new Error(`${local}@${this.domain} is a system address of the house and cannot be retired`), { status: 403 });
+    if (rec.group) throw Object.assign(new Error('a group is not retired this way'), { status: 409 });
+    return this._revocarRecord(local, rec, por, 'agent_retired');
+  }
+
+  // El cuerpo común: la tarjeta vence AHORA y se vuelve a firmar con la casa, para que la
+  // certificación cubra el `revoked`. Sin esto el resolver seguiría aceptando la tarjeta vieja.
+  async _revocarRecord(local, rec, por, evento) {
     const { certification: _c, webhook, notify_email, ...cuerpo } = rec;
     const card = signObject({ ...cuerpo, valid_until: iso(), revoked: { at: iso(), by: por } }, this.keys, 'certification');
-    await this.store.putAgent(subLocal, { ...card, webhook, notify_email });
-    await this.store.kvDelete?.('boveda', subLocal);
-    await this.store.kvDelete?.('pendiente', subLocal);
-    await this._evento('delegation_revoked', rec.address, { by: por });
+    await this.store.putAgent(local, { ...card, webhook, notify_email });
+    await this.store.kvDelete?.('boveda', local);
+    await this.store.kvDelete?.('pendiente', local);
+    await this._evento(evento, rec.address, { by: por });
     return card;
   }
   // ---------- invitaciones de contacto ----------
@@ -2460,17 +2483,20 @@ export class Estafeta {
         const sub = dec(m[1]).toLowerCase();
         if (!Estafeta.validLocal(sub)) return send(400, { reason: 'invalid agent name' });
         const rec = await this.store.getAgent(sub);
-        if (!rec?.delegation) return send(404, { reason: 'no such subagent' });
+        if (!rec) return send(404, { reason: 'no such agent' });
+        const esCasa = (rx.headers.authorization || '') === `Bearer ${this.adminToken}`;
+        // Una dirección sin delegante sólo la retira la CASA: no hay a quién más preguntarle.
+        if (!rec.delegation && !esCasa) return send(404, { reason: 'no such subagent' });
         let por;
-        if ((rx.headers.authorization || '') === `Bearer ${this.adminToken}`) por = `casa@${this.domain}`;
+        if (esCasa) por = `casa@${this.domain}`;
         else {
           const who = await this._authenticate(rx, path);
           if (who.address !== rec.delegation.by && who.local !== sub) return send(403, { reason: 'only the owner who delegated it can revoke it' });
           por = who.address;
         }
         if (rec.revoked) return send(200, { address: rec.address, revoked: rec.revoked, already: true });
-        const card = await this.revocarDelegado(sub, por);
-        return send(200, { address: card.address, revoked: card.revoked });
+        const card = rec.delegation ? await this.revocarDelegado(sub, por) : await this.retirarAgente(sub, por);
+        return send(200, { address: card.address, revoked: card.revoked, retired: !rec.delegation });
       }
       // La tarjeta verificada de CUALQUIER dirección, resuelta por la casa. La app del navegador no
       // puede pedirle la tarjeta a otra casa (CSP y CORS lo impiden, y está bien), y sin la llave de
