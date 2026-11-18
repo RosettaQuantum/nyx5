@@ -91,3 +91,38 @@ test('ningún ejemplo ni demo usa una dirección que la casa no deja registrar',
   }
   assert.deepEqual(malas, [], `direcciones que la casa rechazaría:\n  ${malas.join('\n  ')}`);
 });
+
+// Nace de un defecto REAL del 17-nov-2026, y de los peores: silencioso y hacia afuera. Una suite
+// nueva llamó a `join({ estafeta, local, dir })` creyendo que así apuntaba a su casa de prueba.
+// `join` no tiene ninguno de esos tres parámetros —son `{ house, name, hosts }`— y **`house` vale
+// `nyx5.com` por defecto**, así que la prueba se unió a la CASA DE PRODUCCIÓN y registró ahí un
+// agente por corrida. Diez quedaron, invisibles en el directorio y sin un peso, pero en producción.
+// No se arregla acordándose: se arregla con un chequeo que falla cerrado.
+test('ninguna prueba se une a una casa que no sea de prueba', () => {
+  const dir = new URL('.', import.meta.url);
+  const malas = [];
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.test.js'))) {
+    // Este archivo se excluye porque CITA el patrón: su propio texto lo hace coincidir consigo
+    // mismo. Es la misma razón por la que el barrido de caracteres invisibles de arriba construye
+    // los caracteres en vez de escribirlos.
+    if (f === 'fuente-limpia.test.js') continue;
+    const src = fs.readFileSync(new URL(f, dir), 'utf8');
+    // Las constantes del archivo, para poder resolver `house: LEJOS` y no cantar un falso positivo.
+    const consts = new Map([...src.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*['"`]([^'"`]+)['"`]/g)].map((m) => [m[1], m[2]]));
+    for (const m of src.matchAll(/\bjoin\(\s*\{([^{}]*)\}/g)) {
+      const args = m[1];
+      const linea = src.slice(0, m.index).split('\n').length;
+      const clave = /house\s*:\s*([^,}\n]+)/.exec(args);
+      // (a) sin `house` siquiera: se uniría a la casa por defecto, que es producción.
+      if (!clave) { malas.push(`${f}:${linea} join() sin house: se uniría a nyx5.com, que es producción`); continue; }
+      const crudo = clave[1].trim();
+      const lit = /^['"`]([^'"`]+)['"`]$/.exec(crudo);
+      // (b) un dominio escrito a mano que no es de prueba. Una variable se resuelve si el archivo
+      // la define como literal; si no se puede resolver, NO se acusa: un falso positivo retiene
+      // trabajo bueno, que es peor que dejar pasar un caso.
+      const valor = lit ? lit[1] : consts.get(crudo);
+      if (valor && !valor.endsWith('.test')) malas.push(`${f}:${linea} join({ house: '${valor}' }) no es una casa de prueba`);
+    }
+  }
+  assert.deepEqual(malas, [], `pruebas que se unirían a una casa real:\n${malas.join('\n')}`);
+});

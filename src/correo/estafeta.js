@@ -29,6 +29,7 @@ import { contratoPublico, ACP } from '../libro/contratos.js';
 import { estadoDeCuenta, csvDe, nombreCsv } from '../libro/estado.js';
 import { selloPublico } from '../libro/notaria.js';
 import { Tareas } from '../libro/tareas.js';
+import { MEDIA_ENCARGO, PASOS, aplicarPaso, crearEncargo, sinPlata, tablero, visiblePara } from '../libro/encargos.js';
 import { datosInforme, datosEmbudo, informeHtml } from '../libro/informe.js';
 import { APP_HTML } from '../plataformas/app-html.js';
 import { SPEC_HTML, LLMS_TXT } from '../plataformas/spec-html.js';
@@ -221,6 +222,14 @@ export class Estafeta {
     if (this.tareas.enabled && !await this.store.getAgent('tareas')) {
       await this.registerAgent({ local: 'tareas', sig: this.keys.sig, capabilities: { accepts: [MEDIA.cotizacion], tareas: { por_agente_dia: this.tareas.porAgenteDia }, listed: true }, inbox: { policy: 'open' } });
     }
+    // encargos@ — el mostrador del trabajo INTERNO: sin precio, sin escrow, sin reputación.
+    // Dirección propia y no un segundo uso de `tareas@`, por dos razones. Una decidida antes de
+    // esto y que no se rompe: una casa sin catálogo NO expone el mostrador del trabajo pagado
+    // (`test/tareas.test.js`), y los encargos tienen que existir en toda casa. La otra es la misma
+    // frontera de siempre: el dinero y lo que no es dinero no comparten ventanilla.
+    if (!await this.store.getAgent('encargos')) {
+      await this.registerAgent({ local: 'encargos', sig: this.keys.sig, capabilities: { accepts: [MEDIA_ENCARGO], encargos: true, listed: false }, inbox: { policy: 'open' } });
+    }
   }
   // Instrumentación: nombre, fecha, actor y números. Nunca contenido de sobres ni datos del
   // humano. Un fallo al registrar un evento JAMÁS puede voltear la operación que lo produjo:
@@ -261,7 +270,7 @@ export class Estafeta {
     const ev = eventoDeCobro(env);
     if (ev) await this._evento(ev.name, env.from, { ...ev.data, to: `${local}@${this.domain}` });
   }
-  isSystem(local) { return ['postmaster', 'libro', 'verifica', 'tareas'].includes(local); }
+  isSystem(local) { return ['postmaster', 'libro', 'verifica', 'tareas', 'encargos'].includes(local); }
   // ¿Podría alguien registrarse HOY con este nombre? Mismas reglas que registerAgent, sin registrar nada.
   async nombreDisponible(local) {
     if (!local || Estafeta.RESERVED.has(local) || local.length < (this.policy.min_name_length || 0)) return false;
@@ -269,7 +278,7 @@ export class Estafeta {
   }
   // `qa` es de la casa (NX-606): sólo un asistente de sistema puede vivir ahí, nunca un registro.
   // `ideas` igual: sólo el buzón de vacaciones (POST /admin/ideas) puede ocuparlo.
-  static RESERVED = new Set(['postmaster', 'libro', 'verifica', 'tareas', 'casa', 'admin', 'root', 'abuse', 'security', 'hostmaster', 'noreply', 'no-reply', 'support', 'estafeta', 'nyx5', 'indice', 'historial', 'qa', 'ideas']);
+  static RESERVED = new Set(['postmaster', 'libro', 'verifica', 'tareas', 'encargos', 'casa', 'admin', 'root', 'abuse', 'security', 'hostmaster', 'noreply', 'no-reply', 'support', 'estafeta', 'nyx5', 'indice', 'historial', 'qa', 'ideas']);
 
   // ---------- servicio de registro ----------
   // Invitaciones: la casa emite códigos con usos y vencimiento; un agente los presenta al inscribirse.
@@ -1511,6 +1520,63 @@ export class Estafeta {
     return { ok: true, code: 202, result: { contract: contratoPublico(contrato), task: tarea.id }, recibos: [] };
   }
 
+  // ----- encargos@: el trabajo interno, sin dinero (SPEC v0.2, opción B) -----
+  // Un encargo entra por la misma puerta que todo: un sobre FIRMADO. Por eso la autoridad no se
+  // pregunta nunca —`env.from` ya pasó la cadena dominio -> agente -> firma en `inbound`— y aquí
+  // sólo se compara. El id del encargo es el id del sobre que lo pidió: la idempotencia por sobre
+  // (invariante 4) hace que reentregar no cree dos encargos, sin contador aparte.
+  async _encargo(env) {
+    const b = env.content?.body || {};
+    const op = String(b.op || '');
+    if (!op) return { ok: false, code: 400, reason: `an encargo envelope needs { op }, one of: crear, ${Object.keys(PASOS).join(', ')}` };
+    try {
+      // El guardia de plata mira EL CUERPO DEL SOBRE, que es lo que llega. Medido al escribir la
+      // prueba del transporte: `crearEncargo` recibe campo por campo, así que un `price: 500` en
+      // el cuerpo no llegaba a su guardia y el encargo nacía igual, sin precio y sin aviso. El
+      // remitente habría quedado creyendo que va a cobrar. Es el MISMO defecto que ya se arregló
+      // dentro del módulo, una capa más arriba: el que valida tiene que mirar lo que entra.
+      sinPlata(b);
+      if (op === 'crear') {
+        // El padre se LEE de la bodega, no se cree. Y sólo cuelga trabajo de él quien es parte:
+        // un tercero no mete ramas en el árbol de otro.
+        let padre = null;
+        if (b.parent) {
+          padre = await this.store.encargoGet(String(b.parent));
+          if (!padre) return { ok: false, code: 404, reason: `no encargo with id ${b.parent}` };
+          if (!visiblePara(padre, env.from)) return { ok: false, code: 403, reason: `${b.parent} is not yours to hang work from` };
+        }
+        const e = crearEncargo({ id: env.id, from: env.from, assignee: b.assignee || null, concept: b.concept, detail: b.detail || null, verify: b.verify || null, parent: padre });
+        // false = ese id ya existía. La respuesta correcta a una REENTREGA es el encargo guardado,
+        // no un segundo encargo con el mismo nombre. Pero el id del sobre lo elige QUIEN ENVÍA, así
+        // que devolverlo sin más le entrega el contenido de un encargo ajeno a cualquiera que acierte
+        // un id: concepto, detalle, quién lo pidió y a quién. Hoy `seen` ataja casi todos esos casos
+        // antes de llegar aquí, y «casi» no es un control. Sólo lo ve quien es parte.
+        if (!await this.store.encargoCrear(e)) {
+          const guardado = await this.store.encargoGet(env.id);
+          if (!guardado || !visiblePara(guardado, env.from)) return { ok: false, code: 409, reason: `id ${env.id} is already taken by another encargo` };
+          return { ok: true, code: 200, result: { encargo: guardado, duplicate: true } };
+        }
+        await this._evento('encargo_creado', env.from, { encargo: e.id, assignee: e.assignee, parent: e.parent_id, depth: e.depth });
+        return { ok: true, code: 201, result: { encargo: e } };
+      }
+      if (!PASOS[op]) return { ok: false, code: 400, reason: `unknown op ${op}; the steps are: ${Object.keys(PASOS).join(', ')}` };
+      if (!b.encargo) return { ok: false, code: 400, reason: `${op} needs { encargo: "<id>" }` };
+      const actual = await this.store.encargoGet(String(b.encargo));
+      if (!actual) return { ok: false, code: 404, reason: `no encargo with id ${b.encargo}` };
+      const nuevo = aplicarPaso(actual, op, { por: env.from, note: b.note || null, evidence_sha256: b.evidence_sha256 || null, url: b.url || null, verdict: b.verdict || null });
+      // 409 y no 421: si otro movió este encargo entre la lectura y el paso, reintentar con el
+      // mismo cuerpo volvería a chocar. El que escribe tiene que volver a leer y decidir.
+      if (!await this.store.encargoPaso(nuevo, actual.rev)) return { ok: false, code: 409, reason: `${b.encargo} moved while you were deciding (it is ${(await this.store.encargoGet(String(b.encargo)))?.state}); read it again` };
+      await this._evento('encargo_paso', env.from, { encargo: nuevo.id, paso: op, state: nuevo.state });
+      return { ok: true, code: 200, result: { encargo: nuevo } };
+    } catch (e) {
+      // LibroError trae el código del dominio (400 forma, 403 autoridad, 409 estado); cualquier
+      // otra cosa es un defecto nuestro y no se disfraza de rechazo del remitente.
+      if (e instanceof LibroError) return { ok: false, code: e.code || 400, reason: e.message };
+      throw e;
+    }
+  }
+
   // Los cinco eventos que dicen si el mecanismo se está ejerciendo de verdad, leídos del
   // resultado de la op (no de lo que alguien dijo que iba a pasar).
   async _eventoDeOp(env, result) {
@@ -1612,6 +1678,12 @@ export class Estafeta {
           for (const av of r.avisos || []) avisosPendientes.push(av);
           results[to] = r.result;
           if (!r.duplicate) await this._eventoDeOp(env, r.result);
+        } else if (local === 'encargos') {
+          // Mostrador del trabajo interno. No cuelga de `tareas.enabled`: una casa puede no
+          // pagar nada y aun así repartir trabajo entre sus propios agentes.
+          const r = await this._encargo(env);
+          if (!r.ok) { rejected.push({ to, code: r.code, reason: r.reason }); continue; }
+          results[to] = r.result;
         } else if (local === 'tareas' && this.tareas.enabled) {
           // Mostrador del trabajo sembrado: el agente cotiza la tarea publicada y la casa la
           // acepta si coincide EXACTAMENTE con el catálogo y hay cupo. Nada se negocia aquí.
@@ -2310,6 +2382,19 @@ export class Estafeta {
         // pending: los avisos por webhook que nacieron aquí. El adaptador los pasa a waitUntil;
         // sin eso el runtime cancela el fetch al cerrar la respuesta y el aviso nunca sale.
         return { ...send(r.code || 400, r, r.code === 429 ? this._retryAfter() : null), ...this._cabecerasX402(r), kick: true, pending: this.flushPushes() };
+      }
+      // El tablero: lo que un agente pidió, lo que le pidieron, y los árboles que empezó. Es una
+      // LECTURA FIRMADA, no un endpoint abierto: la misma puerta que el buzón y el Libro. La casa
+      // lo sirve para que cualquier PM —una sesión hoy, un asistente mañana— mire el MISMO tablero
+      // y no haya una segunda verdad que mantener.
+      if (rx.method === 'GET' && path === '/encargos') {
+        const who = await this._authenticate(rx, path);
+        // Sin modo «ver todo»: se muestra sólo de lo que el que firma es parte. Quien empezó un
+        // árbol lo ve entero porque es su `owner`, que es justamente la suma padre->hijos que un
+        // PM necesita. Un listado de la casa completa sería otro privilegio y otra ruta.
+        const estado = rx.query.get('state');
+        const crudos = await this.store.encargoList(estado ? { state: estado.split(',') } : {});
+        return send(200, { address: who.address, ...tablero(crudos.filter((e) => visiblePara(e, who.address)), now()) });
       }
       if (rx.method === 'GET' && (m = /^\/mailbox\/([^/]+)$/.exec(path))) {
         const who = await this._authenticate(rx, path);

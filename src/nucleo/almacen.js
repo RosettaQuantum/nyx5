@@ -28,7 +28,7 @@ const writeJson = (p, v) => {
 export class FileStore {
   constructor(dir) {
     this.dir = dir;
-    for (const d of ['agents', 'mailbox', 'queue', 'outbox', 'invitations', 'libro/diario', 'libro/contratos', 'libro/mandatos', 'libro/ops', 'libro/notaria', 'eventos', 'indice/casas', 'indice/agentes']) fs.mkdirSync(path.join(dir, d), { recursive: true });
+    for (const d of ['agents', 'mailbox', 'queue', 'outbox', 'invitations', 'libro/diario', 'libro/contratos', 'libro/mandatos', 'libro/ops', 'libro/notaria', 'encargos', 'eventos', 'indice/casas', 'indice/agentes']) fs.mkdirSync(path.join(dir, d), { recursive: true });
     this.nonces = new Map(); // anti-replay: en FileStore basta memoria (un proceso)
   }
 
@@ -245,6 +245,37 @@ export class FileStore {
     }
     writeJson(path.join(this.dir, 'libro', 'notaria', `${s.id}.json`), s);
   }
+  // ===== Encargos (migrations/0010_encargos.sql) =====
+  // NO cuelgan de `libro/`: un encargo no mueve dinero y no es un asiento. Viven aparte para que
+  // ninguna lectura del Libro los encuentre por error.
+  encargoGet(id) { return readJson(path.join(this.dir, 'encargos', `${id}.json`)); }
+  // Crear: devuelve false si el id ya existía, no pisa. El `false` se REPORTA a quien llama; un
+  // INSERT que ignora en silencio es un pisotón mudo y aquí el id es el del sobre que lo pidió.
+  encargoCrear(e) {
+    const f = path.join(this.dir, 'encargos', `${e.id}.json`);
+    if (fs.existsSync(f)) return false;
+    writeJson(f, e);
+    return true;
+  }
+  // Un paso sólo entra si el `rev` guardado es el que leyó quien lo da. Mismo candado que el
+  // UPDATE condicional de D1: dos pasos en paralelo sobre el mismo encargo dejan pasar uno y el
+  // otro se entera. Sin esto, el último en escribir borraría la transición del primero.
+  encargoPaso(e, revAnterior) {
+    const actual = this.encargoGet(e.id);
+    if (!actual || Number(actual.rev || 0) !== Number(revAnterior)) return false;
+    writeJson(path.join(this.dir, 'encargos', `${e.id}.json`), e);
+    return true;
+  }
+  encargoList({ state = null, parent = undefined } = {}) {
+    const d = path.join(this.dir, 'encargos');
+    if (!fs.existsSync(d)) return [];
+    let todos = fs.readdirSync(d).filter((f) => f.endsWith('.json')).map((f) => readJson(path.join(d, f)));
+    if (state != null) { const estados = Array.isArray(state) ? state : [state]; todos = todos.filter((e) => estados.includes(e.state)); }
+    // `parent: null` es un filtro (los de raíz), no «sin filtro»: por eso el defecto es undefined.
+    if (parent !== undefined) todos = todos.filter((e) => (e.parent_id || null) === (parent || null));
+    return todos.sort((a, b) => String(a.created).localeCompare(String(b.created)));
+  }
+
   // ---------- instrumentación (nombre, fecha, actor y números; nunca contenido) ----------
   putEvent(e) { writeJson(path.join(this.dir, 'eventos', `${e.id}.json`), e); }
   listEvents({ name = null, since = null, limit = 500 } = {}) {
