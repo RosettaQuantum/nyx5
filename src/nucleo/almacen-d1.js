@@ -219,6 +219,39 @@ export class D1Store {
   // que tirar el batch entero (421 reintentable), no pisar el sello anterior en silencio.
   _selloStmt(s) { return this.db.prepare('INSERT INTO nyx5_notaria (id, sha256, "by", at, doc) VALUES (?, ?, ?, ?, ?)').bind(s.id, s.sha256, s.by, s.at, j(s)); }
   async notariaPut(s) { try { await this._selloStmt(s).run(); } catch (e) { throw this._traducirConflicto(e); } }
+  // ===== Encargos (migrations/0010_encargos.sql): trabajo interno, sin dinero =====
+  async encargoGet(id) { return p(await this.db.prepare('SELECT doc FROM nyx5_encargos WHERE id = ?').bind(id).first()); }
+  // INSERT OR IGNORE, pero el resultado se DEVUELVE: quien llama tiene que saber si su encargo
+  // entró o si ese id ya estaba. Un ignore en silencio deja al remitente creyendo que creó algo.
+  async encargoCrear(e) {
+    const r = await this.db.prepare('INSERT OR IGNORE INTO nyx5_encargos (id, doc) VALUES (?, ?)').bind(e.id, j(e)).run();
+    return r.meta.changes === 1;
+  }
+  // La condición viaja EN el UPDATE: dos isolates dando un paso sobre el mismo encargo a la vez
+  // dejan pasar exactamente uno, y el otro recibe false en vez de borrarle la transición.
+  async encargoPaso(e, revAnterior) {
+    const r = await this.db.prepare("UPDATE nyx5_encargos SET doc = ? WHERE id = ? AND json_extract(doc, '$.rev') = ?")
+      .bind(j(e), e.id, Number(revAnterior)).run();
+    return r.meta.changes === 1;
+  }
+  // Filtros por los dos índices de expresión de la 0010. `parent: null` pide los de raíz; sin
+  // filtro es `undefined`, que es por qué el defecto no puede ser null.
+  async encargoList({ state = null, parent = undefined } = {}) {
+    const cond = ['1 = 1']; const bind = [];
+    if (state != null) {
+      const estados = (Array.isArray(state) ? state : [state]).map(String);
+      if (!estados.length) return [];
+      cond.push(`json_extract(doc, '$.state') IN (${estados.map(() => '?').join(', ')})`);
+      bind.push(...estados);
+    }
+    if (parent !== undefined) {
+      if (parent === null) cond.push("json_extract(doc, '$.parent_id') IS NULL");
+      else { cond.push("json_extract(doc, '$.parent_id') = ?"); bind.push(String(parent)); }
+    }
+    const r = await this.db.prepare(`SELECT doc FROM nyx5_encargos WHERE ${cond.join(' AND ')} ORDER BY json_extract(doc, '$.created'), id`).bind(...bind).all();
+    return r.results.map((x) => JSON.parse(x.doc));
+  }
+
   // ---------- instrumentación ----------
   async putEvent(e) { await this.db.prepare('INSERT OR IGNORE INTO nyx5_eventos (id, name, ts, actor, data) VALUES (?, ?, ?, ?, ?)').bind(e.id, e.name, e.ts, e.actor || null, j(e.data || {})).run(); }
   async listEvents({ name = null, since = null, limit = 500 } = {}) {
