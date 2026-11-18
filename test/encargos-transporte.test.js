@@ -71,7 +71,7 @@ test('un sobre firmado crea el encargo, y el id del encargo es el del sobre', as
   const t = await jefe.tablero('e.test');
   const fila = t.filas.find((f) => f.id === r.envelope.id);
   assert.ok(fila, `el encargo tiene que llamarse como el sobre (${r.envelope.id})`);
-  assert.equal(fila.state, 'open');
+  assert.equal(fila.state, 'submitted');
   assert.equal(fila.assignee, 'obrero@e.test');
   assert.equal(fila.from, 'jefe@e.test');
 });
@@ -92,17 +92,17 @@ test('la autoridad sale de la firma: un tercero no mueve el encargo de otro', as
   // El tercero intenta tomarlo. Que el cuerpo diga lo que quiera es indiferente: `env.from` ya
   // pasó la cadena dominio -> agente -> firma, y el paso se compara contra ESO.
   const malo = await entregar(tercero.encargoPaso('e.test', 'tomar', id));
-  assert.equal((await casa.store.encargoGet(id)).state, 'open', 'el encargo no se movió');
+  assert.equal((await casa.store.encargoGet(id)).state, 'submitted', 'el encargo no se movió');
   assert.match(await rebote(tercero, malo.envelope.id) || '', /belongs to obrero@e\.test/, 'y el tercero recibe el rechazo por rebote, con la razón');
   // Y el dueño sí puede.
   await entregar(obrero.encargoPaso('e.test', 'tomar', id));
-  assert.equal((await casa.store.encargoGet(id)).state, 'taken');
+  assert.equal((await casa.store.encargoGet(id)).state, 'working');
   // El que hace no se cierra su propio encargo: eso lo decide quien lo pidió.
   await entregar(obrero.encargoPaso('e.test', 'entregar', id, { note: 'listo' }));
   await entregar(obrero.encargoPaso('e.test', 'cerrar', id));
-  assert.equal((await casa.store.encargoGet(id)).state, 'delivered', 'el obrero no puede cerrar');
+  assert.equal((await casa.store.encargoGet(id)).state, 'input-required', 'el obrero no puede cerrar');
   await entregar(jefe.encargoPaso('e.test', 'cerrar', id));
-  assert.equal((await casa.store.encargoGet(id)).state, 'done');
+  assert.equal((await casa.store.encargoGet(id)).state, 'completed');
 });
 
 test('el tablero exige firma y muestra sólo de lo que uno es parte', async () => {
@@ -203,7 +203,7 @@ test('ni un encargo ni su ciclo completo mueven el Libro de la casa', async () =
   for (const [paso, quien] of [['tomar', obrero], ['entregar', obrero], ['cerrar', jefe]]) {
     await entregar(quien.encargoPaso('e.test', paso, r.envelope.id));
   }
-  assert.equal((await casa.store.encargoGet(r.envelope.id)).state, 'done');
+  assert.equal((await casa.store.encargoGet(r.envelope.id)).state, 'completed');
   // El terreno: se le pregunta al Libro, no al encargo.
   assert.equal((await casa.store.libroState()).seq, antes.seq, 'el número de asiento no se movió');
   const contratos = await casa.store.libroListContracts();

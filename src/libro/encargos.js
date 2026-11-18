@@ -29,12 +29,32 @@ const iso = (t = Date.now()) => new Date(t).toISOString();
 // Libro lo encuentra por error y el rechazo dice de qué mostrador se trata.
 export const MEDIA_ENCARGO = 'application/nyx5.encargo+json';
 
-export const ESTADOS = Object.freeze(['open', 'taken', 'delivered', 'done', 'cancelled']);
+// Los OCHO estados de A2A, que es el vocabulario que pide la orden (SPEC v0.2). No son invencion
+// de esta casa: quien ya integro A2A entiende un encargo sin traducir nada. La primera version de
+// este archivo traia cinco estados mios (open/taken/delivered/done/cancelled) y los cambie cuando
+// relei la orden: el spec acordado manda sobre mi vocabulario.
+//
+// Y OJO con uno, porque no es obvio: una entrega que espera revision NO es `completed` ni un
+// estado propio, es **`input-required`** — depende de una persona. Es exactamente lo que dice el
+// mapeo de la fase 3 para un contrato sin verificador, y para un encargo siempre es asi, porque un
+// encargo no tiene arbitro.
+export const ESTADOS = Object.freeze([
+  'submitted',       // pedido, nadie lo tomo
+  'working',         // alguien lo tiene y esta en eso
+  'input-required',  // espera a una persona: la entrega esta hecha y hay que revisarla, o falta un dato
+  'auth-required',   // espera una autorizacion que no es de las partes
+  'completed',       // cerrado y aceptado
+  'canceled',        // retirado por quien lo pidio (una `l`, como en A2A)
+  'failed',          // no se pudo
+  'rejected',        // la entrega no sirvio y no se va a reintentar
+]);
 // Lo que el tablero mira: un encargo cerrado no vuelve a aparecer salvo que se pida.
-export const ABIERTOS = Object.freeze(['open', 'taken', 'delivered']);
-export const FINALES = Object.freeze(['done', 'cancelled']);
+export const ABIERTOS = Object.freeze(['submitted', 'working', 'input-required', 'auth-required']);
+export const FINALES = Object.freeze(['completed', 'canceled', 'failed', 'rejected']);
 export const PROFUNDIDAD_MAX = 3;
 export const CONCEPTO_MAX = 200;
+export const PROYECTO_MAX = 40;
+export const RAZON_MAX = 500;
 export const DETALLE_MAX = 4000;
 // `verify` llega de afuera y se guarda: sin tope, un remitente decide cuánto ocupa una fila.
 export const VERIFY_MAX = 10;
@@ -46,17 +66,32 @@ export const SIN_PLATA = Object.freeze(['price', 'amount', 'currency', 'escrow',
 
 // Quién puede hacer cada paso, y desde dónde. `pide` = quien encargó; `hace` = el asignado.
 export const PASOS = Object.freeze({
-  tomar:    { de: ['open'],                          a: 'taken',     quien: 'hace' },
-  entregar: { de: ['taken'],                          a: 'delivered', quien: 'hace' },
-  cerrar:   { de: ['delivered'],                      a: 'done',      quien: 'pide' },
-  devolver: { de: ['delivered'],                      a: 'taken',     quien: 'pide' },
-  cancelar: { de: ['open', 'taken', 'delivered'],     a: 'cancelled', quien: 'pide' },
+  tomar:    { de: ['submitted'],                                         a: 'working',        quien: 'hace' },
+  entregar: { de: ['working'],                                           a: 'input-required', quien: 'hace' },
+  cerrar:   { de: ['input-required'],                                    a: 'completed',      quien: 'pide' },
+  devolver: { de: ['input-required'],                                    a: 'working',        quien: 'pide' },
+  // `rendirse` existe para que `failed` sea alcanzable por quien HACE. Sin el, un encargo que no
+  // se puede cumplir solo tenia la salida de que el que pidio lo cancelara, y eso cuenta como
+  // retirado y no como intentado: dos cosas distintas en el tablero.
+  rendirse: { de: ['working', 'input-required'],                          a: 'failed',         quien: 'hace' },
+  // `rechazar` es del que pide: la entrega no sirve y no se reintenta. Distinto de `devolver`,
+  // que la manda de vuelta al trabajo.
+  rechazar: { de: ['input-required'],                                    a: 'rejected',       quien: 'pide' },
+  cancelar: { de: ['submitted', 'working', 'input-required', 'auth-required'], a: 'canceled',  quien: 'pide' },
 });
 
 const direccion = (v) => {
   const d = String(v).trim();
   if (!DIRECCION.test(d)) throw new LibroError(400, `assignee does not look like an address: ${d}`);
   return d.toLowerCase();
+};
+
+// `due` en ISO-8601, y tiene que ser una fecha de verdad: un plazo ilegible es un plazo que nadie
+// puede vencer, y el tablero lo mostraria como si existiera.
+const fecha = (v) => {
+  const t = Date.parse(String(v));
+  if (!Number.isFinite(t)) throw new LibroError(400, `due must be an ISO-8601 date, and got: ${String(v).slice(0, 40)}`);
+  return new Date(t).toISOString();
 };
 
 const texto = (v, max, campo) => {
@@ -79,7 +114,8 @@ export function crearEncargo(pedido, ahora = Date.now()) {
   // este constructor arma un objeto nuevo campo por campo, un `price` de entrada se caía solo y
   // el encargo nacía sin precio y SIN ERROR. Quien lo pidió habría quedado creyendo que cobra.
   sinPlata(pedido);
-  const { id, from, assignee = null, concept, detail = null, verify = null, parent = null } = pedido || {};
+  const { id, from, assignee = null, concept, detail = null, verify = null, parent = null,
+          project = null, reason = null, due = null } = pedido || {};
   if (!id) throw new LibroError(400, 'an encargo needs an id');
   if (!from) throw new LibroError(400, 'an encargo needs to know who is asking');
   const e = {
@@ -96,14 +132,19 @@ export function crearEncargo(pedido, ahora = Date.now()) {
     concept: texto(concept, CONCEPTO_MAX, 'concept'),
     detail: detail == null ? null : texto(detail, DETALLE_MAX, 'detail'),
     verify: normalizarVerify(verify),
-    state: 'open',
+    // Los tres de la orden. `project` se hereda del padre si no se declara: una subtarea pertenece
+    // al mismo proyecto que lo que cuelga arriba, y obligar a repetirlo es invitar a que divergan.
+    project: project != null ? texto(project, PROYECTO_MAX, 'project') : (parent ? parent.project || null : null),
+    reason: reason == null ? null : texto(reason, RAZON_MAX, 'reason'),
+    due: due == null ? null : fecha(due),
+    state: 'submitted',
     // `rev` es el candado del paso, no decoración: la bodega sólo acepta un cambio si el `rev`
     // que trae es el que tiene guardado. Se cuenta en vez de comparar `updated` porque dos pasos
     // dentro del mismo milisegundo traen el MISMO ISO y la comparación los dejaría pasar los dos.
     rev: 0,
     created: iso(ahora), updated: iso(ahora),
     delivered: null, closed: null,
-    log: [{ at: iso(ahora), by: String(from), paso: 'crear', state: 'open' }],
+    log: [{ at: iso(ahora), by: String(from), paso: 'crear', state: 'submitted' }],
   };
   if (e.depth > PROFUNDIDAD_MAX) throw new LibroError(409, `an encargo does not hang more than ${PROFUNDIDAD_MAX} levels deep`);
   // Un padre cerrado no recibe hijos nuevos: el progreso que ya se reportó dejaría de ser cierto.
@@ -180,13 +221,30 @@ export function progreso(hijos = []) {
   const por = Object.fromEntries(ESTADOS.map((s) => [s, 0]));
   for (const h of hijos) if (Object.hasOwn(por, h.state)) por[h.state]++;
   const total = hijos.length;
-  const cerrados = por.done + por.cancelled;
-  return { total, ...por, abiertos: total - cerrados, completo: total > 0 && cerrados === total && por.done > 0 };
+  // Se cuenta desde FINALES y no nombrando estados a mano. La primera version sumaba
+  // `por.done + por.cancelled` y al pasar al vocabulario A2A esos dos dejaron de existir: las dos
+  // sumas daban NaN y `abiertos` salia NaN sin que nada reventara. Un total clavado a un nombre
+  // deja de contar en silencio el dia que el nombre cambia.
+  const cerrados = FINALES.reduce((n, s) => n + (por[s] || 0), 0);
+  return {
+    total, ...por,
+    abiertos: total - cerrados,
+    // `completo` exige al menos uno COMPLETADO: tres hijos cancelados no son un padre cumplido.
+    completo: total > 0 && cerrados === total && por.completed > 0,
+  };
 }
 
 // Topes de tiempo, en horas. Son del tablero, no del protocolo: mueven lo que se MIRA, nunca
 // lo que se puede hacer. Por eso un encargo atascado no se cancela solo.
-export const TOPES_H = Object.freeze({ open: 24, taken: 72, delivered: 24 });
+// Un tope por cada estado ABIERTO, sin huecos: un estado sin tope se atasca sin que el tablero lo
+// diga, y hay una prueba que lo exige. `auth-required` lleva el tope mas corto de todos porque es
+// el unico que espera a alguien que NO es parte del encargo: nadie lo va a mirar por su cuenta.
+export const TOPES_H = Object.freeze({
+  submitted: 24,
+  working: 72,
+  'input-required': 24,
+  'auth-required': 12,
+});
 
 /**
  * ¿Por qué está atascado esto? Devuelve null, o la razón con las horas. Es una cuenta de
@@ -199,10 +257,12 @@ export function atascado(e, ahora = Date.now(), topes = TOPES_H) {
   if (!Number.isFinite(desde)) return null;
   const horas = Math.floor((ahora - desde) / 3600_000);
   if (horas < tope) return null;
-  const razon = e.state === 'open' ? (e.assignee ? `nadie lo ha tomado y es de ${e.assignee}` : 'nadie lo ha tomado')
-    : e.state === 'taken' ? `${e.assignee} lo tiene y no ha entregado`
-    : `entregado y ${e.from} no lo ha cerrado`;
-  return { horas, tope, razon };
+  // La razon dice QUIEN tiene la pelota, que es la unica cosa accionable de un atasco.
+  const razon = e.state === 'submitted' ? (e.assignee ? `nadie lo ha tomado y es de ${e.assignee}` : 'nadie lo ha tomado')
+    : e.state === 'working' ? `${e.assignee} lo tiene y no ha entregado`
+    : e.state === 'auth-required' ? 'espera una autorizacion de fuera del encargo'
+    : `entregado y ${e.from} no lo ha revisado`;
+  return { horas, tope, razon, espera: e.state === 'working' ? e.assignee : e.from };
 }
 
 /**
