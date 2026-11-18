@@ -124,7 +124,7 @@ export function validarGate(body) {
   if (sha256hex(body.spec) !== spec_sha256) return { error: `El sha256 del contrato que traes no es ${spec_sha256}: es ${sha256hex(body.spec)}. Manda el texto exacto que sellaste.` };
   const d = body.delivery;
   if (!d || typeof d !== 'object' || Array.isArray(d)) return { error: 'delivery debe ser un objeto con `text` (y opcionalmente url y sha256).' };
-  if (typeof d.text !== 'string' || !d.text.trim()) return { error: 'delivery.text está vacío: no hay nada que evaluar. Gate no descarga url; trae el texto de la entrega.' };
+  if (typeof d.text !== 'string' || !d.text.trim()) return { error: 'delivery.text is empty: there is nothing to evaluate. Gate does not download a url; send the text of the delivery.' };
   if (d.text.length > LIMITES_GATE.delivery) return { error: `La entrega supera ${LIMITES_GATE.delivery} caracteres.` };
   const delivery_sha256 = sha256hex(d.text);
   if (d.sha256 != null && (typeof d.sha256 !== 'string' || d.sha256.toLowerCase() !== delivery_sha256)) return { error: `delivery.sha256 no es el sha256 de delivery.text (${delivery_sha256}).` };
@@ -140,11 +140,11 @@ export function validarGate(body) {
 // segunda mirada de quien recibe el veredicto (viene con la evidencia citada para eso).
 export function parsearVeredicto(texto) {
   const abstencion = (razon) => ({ veredicto: 'abstain', criterios: [], razon });
-  if (typeof texto !== 'string' || !texto.trim()) return abstencion('el modelo no devolvió un veredicto');
+  if (typeof texto !== 'string' || !texto.trim()) return abstencion('the model returned no verdict');
   const sinCerca = texto.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
   const a = sinCerca.indexOf('{'), z = sinCerca.lastIndexOf('}');
   let j;
-  try { j = JSON.parse(a >= 0 && z > a ? sinCerca.slice(a, z + 1) : sinCerca); } catch { return abstencion('la respuesta del modelo no fue un JSON válido'); }
+  try { j = JSON.parse(a >= 0 && z > a ? sinCerca.slice(a, z + 1) : sinCerca); } catch { return abstencion('the model did not answer with valid JSON'); }
   if (!j || typeof j !== 'object' || !VEREDICTOS.has(j.veredicto) || !Array.isArray(j.criterios)) return abstencion('la respuesta del modelo no tuvo la forma de un veredicto');
   const criterios = [];
   for (const c of j.criterios.slice(0, LIMITES_GATE.criterios)) {
@@ -373,7 +373,7 @@ export async function atenderAsistentes(est, { maxPorTick = 3, maxRebotesPorTick
         await est.store.kvPut('asistente-fallas', `${local}:${m.envelope.id}`, fallas, Date.now() + 24 * 3600_000);
         if (fallas >= 3) {
           const agente = await est.agenteDeBoveda(local);
-          await agente?.send({ to: m.envelope.from, body: 'No pude contestar este mensaje después de tres intentos. Quedó guardado; si es urgente, escríbelo de nuevo más tarde.', thread: m.envelope.thread || m.envelope.id, inReplyTo: m.envelope.id }).catch(() => {});
+          await agente?.send({ to: m.envelope.from, body: 'I could not answer this message after three attempts. It is saved; if it is urgent, send it again later.', thread: m.envelope.thread || m.envelope.id, inReplyTo: m.envelope.id }).catch(() => {});
           await est.store.ackMail(local, m.envelope.id);
         }
       }
@@ -406,17 +406,17 @@ async function responder(est, local, cfg, rec, m) {
   const clave = `${local}:${mesDe()}`;
   const gasto = await gastoDe(est.store, local, mesDe());
   if (gasto.usd >= cfg.budget_usd) {
-    await contestar({ to: de, body: `Llegué a mi tope de gasto de este mes (US$${cfg.budget_usd}) y no puedo contestar hasta el próximo. Tu mensaje quedó guardado.`, ...hilo });
+    await contestar({ to: de, body: `I reached my spending cap for this month (US$${cfg.budget_usd}) and cannot answer until the next one. Your message is saved.`, ...hilo });
     // El aviso al dueño se reserva ANTES de mandarlo: dos relojes al tope mandarían dos avisos.
     if (cfg.owner && await est.store.kvPutIfAbsent('asistente-gasto', `${clave}:avisado`, { at: new Date().toISOString() })) {
-      await agente.send({ to: cfg.owner, body: `Tu asistente ${local}@${est.domain} llegó al tope de US$${cfg.budget_usd} de ${mesDe()} y dejó de contestar.` }).catch(() => {});
+      await agente.send({ to: cfg.owner, body: `Your assistant ${local}@${est.domain} reached its US$${cfg.budget_usd} cap for ${mesDe()} and stopped answering.` }).catch(() => {});
     }
     await est.store.ackMail(local, m.envelope.id);
     return;
   }
   // Contestar sin llamar a la API: el mensaje queda confirmado y no cuesta nada.
   const rechazar = async (texto) => { await contestar({ to: de, body: texto, ...hilo }); await est.store.ackMail(local, m.envelope.id); };
-  if (esGate && cfg.gate !== true) return rechazar('Esta dirección no atiende Gate: sólo contesta pedidas de contrato.');
+  if (esGate && cfg.gate !== true) return rechazar('This address does not serve Gate: it only answers contract requests.');
   // El tope de entrada, ANTES de cobrar crédito y antes de llamar a la API: una pregunta más larga
   // que el tope no cuesta un peso. Se contesta y se cierra, así que tampoco queda eterna.
   if (!esGate && pregunta.length > LIMITES_ENTRADA.pregunta) return rechazar(DEMASIADO_LARGO(pregunta.length));
@@ -434,7 +434,7 @@ async function responder(est, local, cfg, rec, m) {
     // El contrato tiene que estar sellado en la notaría de esta casa antes de gastar. Quién lo
     // selló queda en el veredicto (nulo si el declarante es secreto): Gate no exige que sea el cliente.
     const sellos = await est.store.notariaList(v.spec_sha256);
-    if (!sellos.length) return rechazar(`El contrato ${v.spec_sha256} no está sellado en la notaría de ${est.domain}. Séllalo primero con notarize { sha256 } en libro@${est.domain} y vuelve a mandar la entrega.`);
+    if (!sellos.length) return rechazar(`Contract ${v.spec_sha256} is not sealed in the notary of ${est.domain}. Seal it first with notarize { sha256 } at libro@${est.domain} and send the delivery again.`);
     gate = { ...v, sealed_by: sellos[0].secret ? null : sellos[0].by, sealed_at: sellos[0].at };
   }
   // Un cliente a la vez por asistente mientras se le cobra: dos relojes (dos isolates) que leyeran
@@ -445,7 +445,7 @@ async function responder(est, local, cfg, rec, m) {
   try {
     if (precio > 0) {
       const c = await creditoDe(est, local, de);
-      if (c.credito < precio) return rechazar(`Necesitas ${precio} tokens de crédito: paga a ${propia} con \`pay\` en libro@${est.domain}; tienes ${Math.max(0, c.credito)}.`);
+      if (c.credito < precio) return rechazar(`You need ${precio} tokens of credit: pay ${propia} with \`pay\` at libro@${est.domain}; you have ${Math.max(0, c.credito)}.`);
       // Se anota ANTES de llamar: si la API falla, se devuelve (abajo); si nadie devuelve, quedó cobrado.
       await consumir(est, local, de, precio);
       reservado = precio;
@@ -556,8 +556,8 @@ async function responder(est, local, cfg, rec, m) {
     if (gate) {
       // Un rechazo de la API es una abstención: nadie decidió. Lo mismo si el modelo no devolvió un
       // veredicto válido. La abstención cobra la mitad, y lo reservado de más se devuelve.
-      const v = j.stop_reason === 'refusal' ? { veredicto: 'abstain', criterios: [], razon: 'la API rechazó evaluar esta entrega' } : parsearVeredicto(texto);
-      if (j.stop_reason === 'max_tokens' && v.veredicto !== 'abstain') { v.degradado_de = v.veredicto; v.veredicto = 'abstain'; v.razon = `${v.razon} (la respuesta quedó cortada por largo)`.trim(); }
+      const v = j.stop_reason === 'refusal' ? { veredicto: 'abstain', criterios: [], razon: 'the API refused to evaluate this delivery' } : parsearVeredicto(texto);
+      if (j.stop_reason === 'max_tokens' && v.veredicto !== 'abstain') { v.degradado_de = v.veredicto; v.veredicto = 'abstain'; v.razon = `${v.razon} (the answer was cut off for length)`.trim(); }
       if (v.veredicto === 'abstain' && reservado > 0) {
         const abst = Math.min(reservado, Number(cfg.gate_abstain_tokens) || 0);
         await consumir(est, local, de, abst - reservado);
@@ -573,14 +573,14 @@ async function responder(est, local, cfg, rec, m) {
     } else {
       respuesta = j.stop_reason === 'refusal' ? 'No puedo responder eso.' : texto;
       if (!respuesta) respuesta = 'No tengo una respuesta para eso.';
-      if (j.stop_reason === 'max_tokens') respuesta += '\n\n(La respuesta quedó cortada por largo. Pídeme que siga.)';
+      if (j.stop_reason === 'max_tokens') respuesta += '\n\n(The answer was cut off for length. Ask me to continue.)';
     }
     // Pie: sello (NX-606, qa@) y recibo del cobro. El sha256 es del texto que lo precede, calculado
     // por la casa (el modelo no sabe calcularlo), para sellarlo en la notaría tal cual llegó.
     const pie = [];
     let sello = null;
-    if (cfg.seal) { sello = sha256hex(respuesta); pie.push(`sha256: ${sello}`, `Séllalo tal cual con notarize { sha256 } en libro@${est.domain}, o guárdalo: es la huella de este texto.`); }
-    if (cobrado > 0) pie.push(`cobrado: ${cobrado} tokens · crédito restante: ${(await creditoDe(est, local, de)).credito}`);
+    if (cfg.seal) { sello = sha256hex(respuesta); pie.push(`sha256: ${sello}`, `Seal it as it stands with notarize { sha256 } at libro@${est.domain}, or keep it: it is the fingerprint of this text.`); }
+    if (cobrado > 0) pie.push(`charged: ${cobrado} tokens · credit left: ${(await creditoDe(est, local, de)).credito}`);
     if (pie.length) respuesta += `\n\n---\n${pie.join('\n')}`;
     // Un recordatorio propio no se contesta: lo que el agente hizo en ese turno fueron sus manos, y
     // el texto queda en el registro. Contestarse a sí mismo sería un bucle (ver `propio` arriba).

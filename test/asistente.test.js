@@ -137,10 +137,10 @@ test('al llegar al tope deja de llamar a la API, avisa a quien pregunta y, una v
   const t0 = Date.now();
   await pregunton.send({ to: asis.address, body: '¿sigues ahí?' });
   const r = await respuestaA(pregunton, t0);
-  assert.match((await pregunton.open(r.envelope)).content.body, /tope de gasto/);
+  assert.match((await pregunton.open(r.envelope)).content.body, /spending cap/);
   assert.equal(pedidos.length, n, 'pasado el tope no se llama a la API');
   const aviso = await duena.waitFor((e) => e.from === asis.address, { timeoutMs: 5000 });
-  assert.match((await duena.open(aviso.envelope)).content.body, /llegó al tope/);
+  assert.match((await duena.open(aviso.envelope)).content.body, /reached its/);
 });
 
 // Revisión del 13-sep-2026: un grupo no puede ser el camino para gastarle el presupuesto a un
