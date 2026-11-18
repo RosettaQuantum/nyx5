@@ -32,6 +32,8 @@ export const FINALES = Object.freeze(['done', 'cancelled']);
 export const PROFUNDIDAD_MAX = 3;
 export const CONCEPTO_MAX = 200;
 export const DETALLE_MAX = 4000;
+// `verify` llega de afuera y se guarda: sin tope, un remitente decide cuánto ocupa una fila.
+export const VERIFY_MAX = 10;
 
 // Los campos que convertirían un encargo en un contrato por la puerta de atrás. La lista es
 // CORTA a propósito: precisión sobre cobertura, porque un falso positivo retiene trabajo bueno.
@@ -47,6 +49,12 @@ export const PASOS = Object.freeze({
   cancelar: { de: ['open', 'taken', 'delivered'],     a: 'cancelled', quien: 'pide' },
 });
 
+const direccion = (v) => {
+  const d = String(v).trim();
+  if (!DIRECCION.test(d)) throw new LibroError(400, `assignee no parece una dirección: ${d}`);
+  return d.toLowerCase();
+};
+
 const texto = (v, max, campo) => {
   if (typeof v !== 'string' || !v.trim()) throw new LibroError(400, `${campo} tiene que ser un texto no vacío`);
   const t = v.trim();
@@ -58,6 +66,10 @@ const texto = (v, max, campo) => {
  * Nace un encargo. `padre` es el encargo del que cuelga, ya leído de la bodega (no su id): así
  * la comprobación de que existe no se puede saltar por olvido de quien llama.
  */
+// Un `assignee` que no es una dirección es un dueño que no puede tomar nunca lo que se le dio:
+// una promesa sin nada detrás. Se comprueba la FORMA, no que exista (puede ser de otra casa).
+const DIRECCION = /^[a-z0-9]([a-z0-9._-]{0,62})@[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}$/i;
+
 export function crearEncargo(pedido, ahora = Date.now()) {
   // El guardia mira lo que LLEGA, no lo que se construye. Medido al escribir la prueba: como
   // este constructor arma un objeto nuevo campo por campo, un `price` de entrada se caía solo y
@@ -74,7 +86,7 @@ export function crearEncargo(pedido, ahora = Date.now()) {
     // consulta: un hijo que `sigo-cto@` le pide a `sigo-editor@` sigue siendo visible para quien
     // encargó lo de arriba. Es la suma padre->hijos del tablero, en un campo y un predicado.
     owner: parent ? String(parent.owner || parent.from) : String(from),
-    assignee: assignee ? String(assignee) : null,
+    assignee: assignee ? direccion(assignee) : null,
     parent_id: parent ? String(parent.id) : null,
     depth: parent ? Number(parent.depth || 0) + 1 : 0,
     concept: texto(concept, CONCEPTO_MAX, 'concept'),
@@ -100,6 +112,7 @@ export function normalizarVerify(v) {
   if (v == null) return null;
   const lista = Array.isArray(v) ? v : [v];
   if (!lista.length) return null;
+  if (lista.length > VERIFY_MAX) throw new LibroError(400, `un encargo no declara más de ${VERIFY_MAX} criterios`);
   for (const c of lista) {
     if (!c || typeof c !== 'object' || Array.isArray(c)) throw new LibroError(400, 'cada verify es un objeto { type, ... }');
     if (typeof c.type !== 'string' || !c.type) throw new LibroError(400, 'cada verify necesita type');

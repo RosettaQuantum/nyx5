@@ -15,6 +15,7 @@ import path from 'node:path';
 import { Estafeta } from '../src/correo/estafeta.js';
 import { join } from '../src/correo/unirse.js';
 import { MEDIA_ENCARGO } from '../src/libro/encargos.js';
+import { signObject } from '../src/nucleo/crypto.js';
 
 const P = 4186;
 const hosts = { 'e.test': { url: `http://127.0.0.1:${P}` } };
@@ -153,6 +154,41 @@ test('un padre que no existe se rechaza, no se convierte en un encargo de raíz'
   const r = await entregar(jefe.encargar('e.test', { concept: 'cuelgo de un fantasma', parent: 'no-existe-este-id' }));
   assert.equal(await casa.store.encargoGet(r.envelope.id), null, 'no se guarda nada');
   assert.match(await rebote(jefe, r.envelope.id) || '', /no encargo with id no-existe-este-id/);
+});
+
+test('un id ajeno no entrega el encargo de otro: el id del sobre lo elige quien envía', async () => {
+  const r = await entregar(jefe.encargar('e.test', { concept: 'secreto del jefe y el obrero', detail: 'el detalle que no debe salir', assignee: 'obrero@e.test' }));
+  const victima = await casa.store.encargoGet(r.envelope.id);
+  assert.ok(victima, 'la víctima tiene que existir o esta prueba pasa por la razón equivocada');
+  // El tercero arma un sobre FIRMADO POR ÉL con el id del encargo ajeno. Es la única forma de
+  // llegar aquí: `send` genera su propio id, así que se construye a mano, como haría un atacante.
+  const sobre = signObject({
+    nyx5: '1', id: victima.id, from: tercero.address, to: [`encargos@e.test`], created: new Date().toISOString(),
+    expires: null, thread: null, in_reply_to: null, type: 'task',
+    content: { media: MEDIA_ENCARGO, body: { op: 'crear', concept: 'a ver qué me devuelves' } },
+  }, tercero.keys);
+  // Capa 1, por la puerta: `seen` ya ataja un id repetido antes de llegar al mostrador.
+  const porLaPuerta = JSON.stringify(await casa.inbound(sobre));
+  assert.ok(!porLaPuerta.includes('el detalle que no debe salir'), `inbound no puede devolver contenido ajeno: ${porLaPuerta.slice(0, 200)}`);
+
+  // Capa 2, el guardia mismo. Se GOLPEA EL MÉTODO porque por `inbound` esta línea es inalcanzable
+  // —`seen` responde primero— y un guardia que ninguna prueba alcanza es un guardia sin probar:
+  // al quitarlo, la prueba de arriba seguía verde. Esta es la que grita.
+  const directo = await casa._encargo(sobre);
+  const texto = JSON.stringify(directo);
+  assert.equal(directo.ok, false, `el mostrador tiene que rechazarlo: ${texto.slice(0, 200)}`);
+  assert.equal(directo.code, 409);
+  assert.ok(!texto.includes('el detalle que no debe salir'), 'y sin filtrar el detalle ajeno');
+  assert.ok(!texto.includes('secreto del jefe'), 'ni el concepto');
+  // Y el encargo de la víctima queda intacto.
+  assert.equal((await casa.store.encargoGet(victima.id)).concept, victima.concept);
+
+  // Quien SÍ es parte recupera el suyo ante el mismo id: es la reentrega legítima, que no se rompe.
+  const propio = signObject({ ...sobre, from: jefe.address, content: { media: MEDIA_ENCARGO, body: { op: 'crear', concept: 'reentrega' } } }, jefe.keys);
+  const mio = await casa._encargo(propio);
+  assert.equal(mio.ok, true);
+  assert.equal(mio.result.duplicate, true);
+  assert.equal(mio.result.encargo.concept, victima.concept, 'una parte sí recupera el suyo');
 });
 
 test('un encargo con precio se rechaza en la puerta, no se guarda sin precio', async () => {

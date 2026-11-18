@@ -18,7 +18,7 @@ import { D1Store } from '../src/nucleo/almacen-d1.js';
 import { openLocalD1, sqliteAvailable } from '../src/nucleo/d1-local.js';
 import { MIGRACIONES } from './_migraciones.js';
 import {
-  ABIERTOS, ESTADOS, FINALES, PASOS, PROFUNDIDAD_MAX, SIN_PLATA, TOPES_H,
+  ABIERTOS, ESTADOS, FINALES, PASOS, PROFUNDIDAD_MAX, SIN_PLATA, TOPES_H, VERIFY_MAX,
   aplicarPaso, atascado, crearEncargo, progreso, tablero,
 } from '../src/libro/encargos.js';
 
@@ -47,6 +47,19 @@ _test('el texto del encargo puede hablar de plata: el guardia mira campos, no pa
   const e = crearEncargo({ id: 'e2', from: PIDE, concept: 'subir el precio del plan a 20 USD', detail: 'el fee queda en 0,5%' });
   assert.equal(e.state, 'open');
   assert.match(e.concept, /precio/);
+});
+
+_test('un criterio sin tope y un dueño que no es dirección no entran', () => {
+  // `verify` llega de afuera y se GUARDA: sin tope, el remitente decide cuánto ocupa la fila.
+  assert.throws(() => crearEncargo({ id: 'v', from: PIDE, concept: 'c', verify: Array.from({ length: VERIFY_MAX + 1 }, () => ({ type: 'sha256' })) }),
+    (e) => e.code === 400 && /criterios/.test(e.message));
+  assert.equal(crearEncargo({ id: 'v', from: PIDE, concept: 'c', verify: Array.from({ length: VERIFY_MAX }, () => ({ type: 'sha256' })) }).verify.length, VERIFY_MAX);
+  // Un `assignee` que no es una dirección es un dueño que no podría tomar nunca lo que se le dio.
+  for (const malo of ['obrero', 'obrero@', '@casa.test', 'obrero@casa', 'dos @ casa.test']) {
+    assert.throws(() => crearEncargo({ id: 'a', from: PIDE, concept: 'c', assignee: malo }), (e) => e.code === 400 && /dirección/.test(e.message), `${malo} no es una dirección`);
+  }
+  // Se guarda en minúsculas, porque el paso compara cadenas: `Obrero@` no podría tomar lo suyo.
+  assert.equal(crearEncargo({ id: 'a', from: PIDE, concept: 'c', assignee: 'Obrero@Casa.Test' }).assignee, 'obrero@casa.test');
 });
 
 // ---------- 2. un encargo nunca produce un asiento ----------

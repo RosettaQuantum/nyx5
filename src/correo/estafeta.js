@@ -1546,9 +1546,16 @@ export class Estafeta {
           if (!visiblePara(padre, env.from)) return { ok: false, code: 403, reason: `${b.parent} is not yours to hang work from` };
         }
         const e = crearEncargo({ id: env.id, from: env.from, assignee: b.assignee || null, concept: b.concept, detail: b.detail || null, verify: b.verify || null, parent: padre });
-        // false = ese id ya existía: el sobre se reentregó. Se devuelve el que está guardado, que
-        // es la respuesta correcta y no un segundo encargo con el mismo nombre.
-        if (!await this.store.encargoCrear(e)) return { ok: true, code: 200, result: { encargo: await this.store.encargoGet(env.id), duplicate: true } };
+        // false = ese id ya existía. La respuesta correcta a una REENTREGA es el encargo guardado,
+        // no un segundo encargo con el mismo nombre. Pero el id del sobre lo elige QUIEN ENVÍA, así
+        // que devolverlo sin más le entrega el contenido de un encargo ajeno a cualquiera que acierte
+        // un id: concepto, detalle, quién lo pidió y a quién. Hoy `seen` ataja casi todos esos casos
+        // antes de llegar aquí, y «casi» no es un control. Sólo lo ve quien es parte.
+        if (!await this.store.encargoCrear(e)) {
+          const guardado = await this.store.encargoGet(env.id);
+          if (!guardado || !visiblePara(guardado, env.from)) return { ok: false, code: 409, reason: `id ${env.id} is already taken by another encargo` };
+          return { ok: true, code: 200, result: { encargo: guardado, duplicate: true } };
+        }
         await this._evento('encargo_creado', env.from, { encargo: e.id, assignee: e.assignee, parent: e.parent_id, depth: e.depth });
         return { ok: true, code: 201, result: { encargo: e } };
       }
