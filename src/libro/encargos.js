@@ -19,6 +19,10 @@
 
 import { LibroError } from './errores.js';
 
+// Los mensajes de rechazo van en INGLÉS porque salen al usuario: vuelven al remitente como razón
+// del rebote del postmaster. Los comentarios y los nombres del dominio siguen en español, que es
+// la convención de la casa. El guardia de `test/documentacion.test.js` lo vigila.
+
 const iso = (t = Date.now()) => new Date(t).toISOString();
 
 // El sobre que pide o mueve un encargo. Tipo propio, no `op` del Libro: así ninguna lectura del
@@ -51,14 +55,14 @@ export const PASOS = Object.freeze({
 
 const direccion = (v) => {
   const d = String(v).trim();
-  if (!DIRECCION.test(d)) throw new LibroError(400, `assignee no parece una dirección: ${d}`);
+  if (!DIRECCION.test(d)) throw new LibroError(400, `assignee does not look like an address: ${d}`);
   return d.toLowerCase();
 };
 
 const texto = (v, max, campo) => {
-  if (typeof v !== 'string' || !v.trim()) throw new LibroError(400, `${campo} tiene que ser un texto no vacío`);
+  if (typeof v !== 'string' || !v.trim()) throw new LibroError(400, `${campo} must be a non-empty string`);
   const t = v.trim();
-  if (t.length > max) throw new LibroError(400, `${campo} supera ${max} caracteres`);
+  if (t.length > max) throw new LibroError(400, `${campo} is longer than ${max} characters`);
   return t;
 };
 
@@ -76,8 +80,8 @@ export function crearEncargo(pedido, ahora = Date.now()) {
   // el encargo nacía sin precio y SIN ERROR. Quien lo pidió habría quedado creyendo que cobra.
   sinPlata(pedido);
   const { id, from, assignee = null, concept, detail = null, verify = null, parent = null } = pedido || {};
-  if (!id) throw new LibroError(400, 'un encargo necesita id');
-  if (!from) throw new LibroError(400, 'un encargo necesita saber quién lo pide');
+  if (!id) throw new LibroError(400, 'an encargo needs an id');
+  if (!from) throw new LibroError(400, 'an encargo needs to know who is asking');
   const e = {
     nyx5: '1', kind: 'encargo', id: String(id),
     from: String(from),
@@ -101,9 +105,9 @@ export function crearEncargo(pedido, ahora = Date.now()) {
     delivered: null, closed: null,
     log: [{ at: iso(ahora), by: String(from), paso: 'crear', state: 'open' }],
   };
-  if (e.depth > PROFUNDIDAD_MAX) throw new LibroError(409, `un encargo no cuelga más de ${PROFUNDIDAD_MAX} niveles`);
+  if (e.depth > PROFUNDIDAD_MAX) throw new LibroError(409, `an encargo does not hang more than ${PROFUNDIDAD_MAX} levels deep`);
   // Un padre cerrado no recibe hijos nuevos: el progreso que ya se reportó dejaría de ser cierto.
-  if (parent && FINALES.includes(parent.state)) throw new LibroError(409, `el encargo padre ${parent.id} ya está ${parent.state}`);
+  if (parent && FINALES.includes(parent.state)) throw new LibroError(409, `the parent encargo ${parent.id} is already ${parent.state}`);
   return sinPlata(e);
 }
 
@@ -112,10 +116,10 @@ export function normalizarVerify(v) {
   if (v == null) return null;
   const lista = Array.isArray(v) ? v : [v];
   if (!lista.length) return null;
-  if (lista.length > VERIFY_MAX) throw new LibroError(400, `un encargo no declara más de ${VERIFY_MAX} criterios`);
+  if (lista.length > VERIFY_MAX) throw new LibroError(400, `an encargo declares at most ${VERIFY_MAX} criteria`);
   for (const c of lista) {
-    if (!c || typeof c !== 'object' || Array.isArray(c)) throw new LibroError(400, 'cada verify es un objeto { type, ... }');
-    if (typeof c.type !== 'string' || !c.type) throw new LibroError(400, 'cada verify necesita type');
+    if (!c || typeof c !== 'object' || Array.isArray(c)) throw new LibroError(400, 'each verify must be an object { type, ... }');
+    if (typeof c.type !== 'string' || !c.type) throw new LibroError(400, 'each verify needs a type');
   }
   return lista;
 }
@@ -129,7 +133,7 @@ export function sinPlata(e) {
   for (const sitio of [e, e.terms]) {
     if (!sitio || typeof sitio !== 'object') continue;
     for (const k of SIN_PLATA) {
-      if (Object.hasOwn(sitio, k)) throw new LibroError(400, `un encargo no lleva ${k}: el trabajo interno no mueve plata (si hay que pagar, es una cotización a libro@)`);
+      if (Object.hasOwn(sitio, k)) throw new LibroError(400, `an encargo carries no ${k}: internal work moves no money (if it has to be paid, it is a quote to libro@)`);
     }
   }
   return e;
@@ -144,16 +148,16 @@ export function aplicarPaso(encargo, paso, opciones = {}, ahora = Date.now()) {
   sinPlata(opciones);
   const { por, note = null, evidence_sha256 = null, url = null, verdict = null } = opciones;
   const p = PASOS[paso];
-  if (!p) throw new LibroError(400, `paso desconocido: ${paso}. Los que hay: ${Object.keys(PASOS).join(', ')}`);
-  if (!por) throw new LibroError(403, 'un paso necesita saber quién lo da');
-  if (!p.de.includes(encargo.state)) throw new LibroError(409, `no se puede ${paso} un encargo que está ${encargo.state} (sólo desde ${p.de.join(' o ')})`);
+  if (!p) throw new LibroError(400, `unknown step ${paso}; the steps are: ${Object.keys(PASOS).join(', ')}`);
+  if (!por) throw new LibroError(403, 'a step needs to know who is taking it');
+  if (!p.de.includes(encargo.state)) throw new LibroError(409, `cannot ${paso} an encargo that is ${encargo.state} (only from ${p.de.join(' or ')})`);
 
   // Quién manda. `tomar` sin asignado lo puede dar cualquiera —así se publica trabajo abierto—,
   // pero con asignado puesto sólo lo toma él: un encargo con dueño no se lo queda un tercero.
-  if (p.quien === 'pide' && por !== encargo.from) throw new LibroError(403, `sólo ${encargo.from}, que lo encargó, puede ${paso}`);
+  if (p.quien === 'pide' && por !== encargo.from) throw new LibroError(403, `only ${encargo.from}, who asked for it, can ${paso}`);
   if (p.quien === 'hace') {
-    if (encargo.assignee && por !== encargo.assignee) throw new LibroError(403, `este encargo es de ${encargo.assignee}`);
-    if (!encargo.assignee && paso !== 'tomar') throw new LibroError(409, 'este encargo no tiene dueño todavía: alguien tiene que tomarlo primero');
+    if (encargo.assignee && por !== encargo.assignee) throw new LibroError(403, `this encargo belongs to ${encargo.assignee}`);
+    if (!encargo.assignee && paso !== 'tomar') throw new LibroError(409, 'this encargo has no owner yet: somebody has to take it first');
   }
 
   const e = { ...encargo, rev: Number(encargo.rev || 0) + 1, updated: iso(ahora), state: p.a, log: [...(encargo.log || []), { at: iso(ahora), by: String(por), paso, state: p.a, ...(note ? { note: texto(note, DETALLE_MAX, 'note') } : {}) }] };

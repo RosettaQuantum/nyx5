@@ -93,7 +93,7 @@ test('la autoridad sale de la firma: un tercero no mueve el encargo de otro', as
   // pasó la cadena dominio -> agente -> firma, y el paso se compara contra ESO.
   const malo = await entregar(tercero.encargoPaso('e.test', 'tomar', id));
   assert.equal((await casa.store.encargoGet(id)).state, 'open', 'el encargo no se movió');
-  assert.match(await rebote(tercero, malo.envelope.id) || '', /este encargo es de obrero@e\.test/, 'y el tercero recibe el rechazo por rebote, con la razón');
+  assert.match(await rebote(tercero, malo.envelope.id) || '', /belongs to obrero@e\.test/, 'y el tercero recibe el rechazo por rebote, con la razón');
   // Y el dueño sí puede.
   await entregar(obrero.encargoPaso('e.test', 'tomar', id));
   assert.equal((await casa.store.encargoGet(id)).state, 'taken');
@@ -194,7 +194,7 @@ test('un id ajeno no entrega el encargo de otro: el id del sobre lo elige quien 
 test('un encargo con precio se rechaza en la puerta, no se guarda sin precio', async () => {
   const r = await entregar(jefe.encargoOp('e.test', { op: 'crear', concept: 'pagarme 500', price: 500 }));
   assert.equal(await casa.store.encargoGet(r.envelope.id), null, 'no se guarda');
-  assert.match(await rebote(jefe, r.envelope.id) || '', /no lleva price/, 'y el remitente se entera de por qué, en vez de creer que cobra');
+  assert.match(await rebote(jefe, r.envelope.id) || '', /carries no price/, 'y el remitente se entera de por qué, en vez de creer que cobra');
 });
 
 test('ni un encargo ni su ciclo completo mueven el Libro de la casa', async () => {

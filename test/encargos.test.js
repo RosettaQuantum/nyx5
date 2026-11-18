@@ -52,11 +52,11 @@ _test('el texto del encargo puede hablar de plata: el guardia mira campos, no pa
 _test('un criterio sin tope y un dueño que no es dirección no entran', () => {
   // `verify` llega de afuera y se GUARDA: sin tope, el remitente decide cuánto ocupa la fila.
   assert.throws(() => crearEncargo({ id: 'v', from: PIDE, concept: 'c', verify: Array.from({ length: VERIFY_MAX + 1 }, () => ({ type: 'sha256' })) }),
-    (e) => e.code === 400 && /criterios/.test(e.message));
+    (e) => e.code === 400 && /at most/.test(e.message));
   assert.equal(crearEncargo({ id: 'v', from: PIDE, concept: 'c', verify: Array.from({ length: VERIFY_MAX }, () => ({ type: 'sha256' })) }).verify.length, VERIFY_MAX);
   // Un `assignee` que no es una dirección es un dueño que no podría tomar nunca lo que se le dio.
   for (const malo of ['obrero', 'obrero@', '@casa.test', 'obrero@casa', 'dos @ casa.test']) {
-    assert.throws(() => crearEncargo({ id: 'a', from: PIDE, concept: 'c', assignee: malo }), (e) => e.code === 400 && /dirección/.test(e.message), `${malo} no es una dirección`);
+    assert.throws(() => crearEncargo({ id: 'a', from: PIDE, concept: 'c', assignee: malo }), (e) => e.code === 400 && /does not look like an address/.test(e.message), `${malo} no es una dirección`);
   }
   // Se guarda en minúsculas, porque el paso compara cadenas: `Obrero@` no podría tomar lo suyo.
   assert.equal(crearEncargo({ id: 'a', from: PIDE, concept: 'c', assignee: 'Obrero@Casa.Test' }).assignee, 'obrero@casa.test');
@@ -169,9 +169,9 @@ _test('no se cuelga más allá del tope, ni de un padre ya cerrado', () => {
   let p = base();
   for (let i = 1; i <= PROFUNDIDAD_MAX; i++) p = crearEncargo({ id: `n${i}`, from: PIDE, concept: `nivel ${i}`, parent: p });
   assert.equal(p.depth, PROFUNDIDAD_MAX);
-  assert.throws(() => crearEncargo({ id: 'x', from: PIDE, concept: 'uno más', parent: p }), (e) => e.code === 409 && /niveles/.test(e.message));
+  assert.throws(() => crearEncargo({ id: 'x', from: PIDE, concept: 'uno más', parent: p }), (e) => e.code === 409 && /levels deep/.test(e.message));
   const cerrado = aplicarPaso(base(), 'cancelar', { por: PIDE });
-  assert.throws(() => crearEncargo({ id: 'y', from: PIDE, concept: 'tarde', parent: cerrado }), (e) => e.code === 409 && /cancelled/.test(e.message));
+  assert.throws(() => crearEncargo({ id: 'y', from: PIDE, concept: 'tarde', parent: cerrado }), (e) => e.code === 409 && /already cancelled/.test(e.message));
 });
 
 // ---------- 7. el tablero ----------
