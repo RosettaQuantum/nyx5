@@ -121,25 +121,103 @@ test('server.json y package.json coinciden, y cumplen lo que el registro oficial
 // Todo lo que un agente o un humano LEE va en inglés (decisión de Nicholas, 8-sep-2026); el
 // repositorio por dentro sigue en español. La frontera es fácil de cruzar sin darse cuenta —un
 // mensaje de error nuevo, un console.log— y nadie se entera hasta que un extranjero lo ve.
-test('ningún mensaje que sale al usuario quedó en español', () => {
-  const fuentes = ['src/correo/estafeta.js', 'src/correo/politica.js', 'src/correo/agente.js', 'src/correo/resolver.js',
-    'src/correo/unirse.js', 'src/libro/libro.js', 'src/libro/contratos.js', 'src/libro/tareas.js', 'src/libro/verifica.js',
-    'src/puentes/email.js', 'src/nucleo/almacen.js', 'src/nucleo/crypto.js', 'src/plataformas/node.js', 'bin/nyx5.js'];
-  // Sale al usuario: reason:, los Error que se lanzan, y lo que el CLI imprime.
-  const salida = /(?:reason:\s*|new (?:Libro)?Error\(|console\.log\(|console\.error\(|fail\(\d+,\s*|must\([^,]+,\s*\d+,\s*)(['`])([^'`]{8,})\1/g;
+// DEUDA DECLARADA, no escondida. Son los 37 mensajes en español que ya salían al usuario ANTES
+// del 17-nov-2026, encontrados el día en que este guardia dejó de mentir. Traducirlos es texto que
+// lee un usuario, así que es decisión de Nicholas (§5 de CLAUDE.md) y no se hace de callada.
+//
+// Lo que esta lista SÍ garantiza: no crece. Un mensaje nuevo en español falla cerrado, y uno
+// traducido tiene que salir de aquí o la prueba avisa que la lista quedó vieja.
+const PENDIENTES_DE_TRADUCIR = [
+  'src/correo/asistente.js :: la bóveda no tiene la llave de este asistente',
+  'src/correo/ideas.js :: la bóveda no tiene la llave de ideas@',
+  'src/libro/libro.js :: cotización malformada',
+  'src/libro/libro.js :: cotización vencida',
+  'src/libro/libro.js :: cotización ya aceptada',
+  'src/libro/libro.js :: el vendedor no puede ser su propio referidor',
+  'src/libro/libro.js :: fee (${this.feeBps} bps) + comisión (${q.referrer.share} bps) supera el 100% del precio',
+  'src/libro/libro.js :: firma de la cotización inválida',
+  'src/libro/libro.js :: la cotización es para la casa ${q.house}, no ${this.domain}',
+  'src/libro/libro.js :: la cotización no está dirigida a quien la acepta',
+  'src/libro/libro.js :: los montos son enteros (tokens)',
+  'src/libro/libro.js :: putContract fuera de transacción',
+  'src/libro/libro.js :: putMandate fuera de transacción',
+  'src/libro/libro.js :: putSello fuera de transacción',
+  'src/libro/libro.js :: referidor inválido en la cotización',
+  'src/libro/libro.js :: referrer.share debe ser un entero de basis points > 0',
+  'src/libro/libro.js :: service debe ser el id de un servicio de la ficha (letras minúsculas, dígitos y guiones)',
+  'src/libro/libro.js :: árbitro inválido en la cotización',
+  'src/libro/tareas.js :: la tarea ${t.id} necesita un precio entero positivo',
+  'src/libro/tareas.js :: la tarea ${t.id} no declara prueba de aceptación: sin prueba no se paga',
+  'src/nucleo/keccak.js :: hex inválido: ${String(hex).slice(0, 20)}',
+  'src/nucleo/objetos.js :: clave de objeto inválida: ${JSON.stringify(String(clave).slice(0, 60))}',
+  'src/nucleo/secp256k1.js :: secp256k1: dirección inválida',
+  'src/nucleo/secp256k1.js :: secp256k1: el hash son 32 bytes',
+  'src/nucleo/secp256k1.js :: secp256k1: el punto no está en la curva',
+  'src/nucleo/secp256k1.js :: secp256k1: la firma son 65 bytes (r || s || v)',
+  'src/nucleo/secp256k1.js :: secp256k1: la llave privada son 32 bytes',
+  'src/nucleo/secp256k1.js :: secp256k1: se firma un hash de 32 bytes, no un mensaje',
+  'src/nucleo/secp256k1.js :: secp256k1: v inválido (${f[64]})',
+  'src/puentes/x402-pagador.js :: x402 pagador: ${nombre} debe ser un entero sin signo en unidades atómicas',
+  'src/puentes/x402-pagador.js :: x402 pagador: dirección inválida "${String(a).slice(0, 20)}"',
+  'src/puentes/x402-pagador.js :: x402 pagador: el precio (${monto}) supera el tope (${limite}); no se firma',
+  'src/puentes/x402-pagador.js :: x402 pagador: el servidor rechazó el pago${motivo ? ',
+  'src/puentes/x402-pagador.js :: x402 pagador: from (${from}) no es la dirección de la llave (${propia})',
+  'src/puentes/x402-pagador.js :: x402 pagador: no sé pagar en ${requisito.network}',
+  'src/puentes/x402-pagador.js :: x402 pagador: tope (unidades atómicas) es obligatorio',
+  'src/puentes/x402-pagador.js :: x402 pagador: validBefore debe ser mayor que validAfter',
+];
+
+// Barrido recursivo: la fuente se descubre, no se enumera.
+const barrer = (dir, base = new URL('../', import.meta.url)) => {
+  const abs = new URL(`${dir}/`, base);
+  const out = [];
+  for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+    if (e.isDirectory()) out.push(...barrer(`${dir}/${e.name}`, base));
+    else if (e.name.endsWith('.js')) out.push(`${dir}/${e.name}`);
+  }
+  return out;
+};
+
+// Este guardia tenía DOS huecos, y los dos lo dejaban verde mientras no era verdad:
+//
+//   1. Su lista de fuentes estaba CLAVADA en 14 archivos. `src/libro/encargos.js` nació el
+//      17-nov-2026 con sus once rechazos en español y el guardia no se enteró. Un paso clavado a
+//      un literal deja de ocurrir: ahora barre `src/` y `bin/` completos y un archivo nuevo entra
+//      solo.
+//   2. Su patrón esperaba el texto JUSTO después de `new LibroError(`, y la firma de la casa es
+//      `LibroError(codigo, mensaje)`. O sea que NUNCA revisó un rechazo del Libro, que es
+//      exactamente donde viven los que ve un agente. Así aparecieron 16 en `libro.js` que llevaban
+//      meses ahí.
+//
+// Por eso la lista de arriba existe: el guardia corregido encuentra 37 que ya estaban, y no se
+// puede poner verde traduciéndolos sin pasar por §5.
+test('ningún mensaje NUEVO que sale al usuario quedó en español', () => {
+  const fuentes = [...barrer('src'), ...barrer('bin')];
+  assert.ok(fuentes.length > 20, `el barrido tiene que encontrar la fuente, y encontró ${fuentes.length}`);
+  // Sale al usuario: reason:, los Error que se lanzan (con o sin código delante), y lo que imprime
+  // el CLI.
+  const salida = /(?:reason:\s*|new (?:Libro)?Error\(\s*(?:\d+\s*,\s*)?|console\.log\(|console\.error\(|fail\(\d+,\s*|must\([^,]+,\s*\d+,\s*)(['`])([^'`]{8,})\1/g;
   const tilde = /[áéíóúñ¿¡]/;
   // Dos o más palabras funcionales del español seguidas es la señal; una sola da falsos positivos
   // (`la` y `de` existen en nombres propios y en inglés técnico).
   const funcion = /\b(el|la|los|las|una?|del|para|por|sin|que|con|debe|puede|tiene|está|son|hay|más|ya|solo|desde|cada|este|esta|no se)\b/gi;
-  const sospechosos = [];
+  const pendientes = new Set(PENDIENTES_DE_TRADUCIR);
+  const nuevos = [];
+  const vistos = new Set();
   for (const f of fuentes) {
     const src = leer(f);
     for (const m of src.matchAll(salida)) {
       const t = m[2];
-      if (tilde.test(t) || (t.match(funcion) || []).length >= 2) sospechosos.push(`${f}: ${t.slice(0, 70)}`);
+      if (!tilde.test(t) && (t.match(funcion) || []).length < 2) continue;
+      const clave = `${f} :: ${t}`;
+      vistos.add(clave);
+      if (!pendientes.has(clave)) nuevos.push(clave);
     }
   }
-  assert.deepEqual(sospechosos, [], `mensajes en español que ve el usuario:\n  ${sospechosos.join('\n  ')}`);
+  assert.deepEqual(nuevos, [], `mensajes NUEVOS en español que ve el usuario:\n  ${nuevos.join('\n  ')}`);
+  // Y la lista no puede quedar vieja: si uno se tradujo, sale de aquí o esto avisa.
+  const yaNoEstan = [...pendientes].filter((x) => !vistos.has(x));
+  assert.deepEqual(yaNoEstan, [], `ya no están en la fuente: sácalos de PENDIENTES_DE_TRADUCIR\n  ${yaNoEstan.join('\n  ')}`);
 });
 
 // Cero dependencias es una promesa del README, del CLAUDE.md y de la Constitución, y hasta hoy
