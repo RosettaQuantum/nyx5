@@ -18,6 +18,7 @@ import { applyInboxPolicy } from '../correo/politica.js';
 import { LibroError } from './errores.js';
 import { estadoDeCuenta } from './estado.js';
 import { notarize } from './notaria.js';
+import { senalAbierta, senalesDe, validarSenal } from './senal.js';
 
 const iso = () => new Date().toISOString();
 const fail = (code, msg) => { throw new LibroError(code, msg); };
@@ -109,6 +110,31 @@ const ops = {
     c.state = 'delivered'; c.evidence_sha256 = body.evidence_sha256 || null;
     record(libro, c, 'deliver', from, { evidence_sha256: c.evidence_sha256, note: body.note });
     return { result: { contract: c }, recibos: [{ to: parties(c), thread: c.id, body: { contract: c } }] };
+  },
+
+  // --- la señal: «esto está esperando algo», sin tocar el estado ni el dinero (fase 2) ---
+  // Lo que esta op NO hace, y es su razón de ser: no cambia `c.state`, no llama a ninguna
+  // primitiva del Libro y no emite asiento. Es una entrada en el historial. El estado dice en qué
+  // punto del ciclo está el trabajo; la señal dice qué lo tiene detenido AHORA, y son dos
+  // preguntas distintas.
+  //
+  // Quién puede: las partes del contrato y la casa. Un tercero no, ni para «ayudar»: una señal
+  // ajena en el historial de un trato es alguien escribiendo en un documento que no es suyo.
+  async signal(ctx) {
+    const { libro, from, body } = ctx;
+    const c = await getContract(libro, body.contract);
+    const casa = `casa@${libro.domain}`;
+    must(parties(c).includes(from) || from === casa, 403, 'only the parties of this contract and the house can signal');
+    // Un contrato terminado no recibe señales: no hay nada que esperar, y una señal ahí daría a
+    // entender en el tablero que el trato sigue vivo.
+    must(ACP[c.state] !== 'Terminal', 409, `contract ${c.id} is ${c.state} and nothing is pending on it`);
+    const { kind, reason } = validarSenal(body);
+    const antes = c.state;
+    record(libro, c, 'signal', from, { kind, reason });
+    // El guardia que sostiene la promesa de arriba, dentro del propio código: si alguna vez este
+    // bloque mueve el estado, falla cerrado en vez de pasar inadvertido.
+    must(c.state === antes, 500, 'a signal must not change the state of a contract');
+    return { result: { contract: c, signal: senalAbierta(c.history) }, recibos: [{ to: parties(c), thread: c.id, body: { contract: c, signal: { kind, reason } } }] };
   },
 
   // --- liberar fondos retenidos: escrow -> vendedor (con fee); fianza -> vuelve al que afianzó ---
@@ -375,5 +401,9 @@ export function estadoACP(contrato) {
 
 // Vista pública de un contrato: lo mismo que hay, más el vocabulario ACP. No agrega ni oculta.
 export function contratoPublico(contrato) {
-  return contrato ? { ...contrato, acp: estadoACP(contrato) } : contrato;
+  if (!contrato) return contrato;
+  // La señal abierta viaja con el contrato, derivada del historial y no de un campo aparte: un
+  // campo «señal actual» sería una segunda verdad que mantener al lado del historial que ya la
+  // contiene.
+  return { ...contrato, acp: estadoACP(contrato), signal: senalAbierta(contrato.history || []), signals: senalesDe(contrato.history || []) };
 }

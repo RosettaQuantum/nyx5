@@ -45,7 +45,7 @@ _test('un encargo con precio no nace: sin esto vuelve el contrato de valor cero'
 
 _test('el texto del encargo puede hablar de plata: el guardia mira campos, no palabras', () => {
   const e = crearEncargo({ id: 'e2', from: PIDE, concept: 'subir el precio del plan a 20 USD', detail: 'el fee queda en 0,5%' });
-  assert.equal(e.state, 'open');
+  assert.equal(e.state, 'submitted');
   assert.match(e.concept, /precio/);
 });
 
@@ -74,7 +74,7 @@ test('el ciclo completo de un encargo no deja ni un asiento ni un contrato', asy
       e = aplicarPaso(antes, paso, { por });
       assert.equal(await store.encargoPaso(e, antes.rev), true, `${quien}: ${paso} tiene que entrar`);
     }
-    assert.equal((await store.encargoGet('e1')).state, 'done');
+    assert.equal((await store.encargoGet('e1')).state, 'completed');
     // El terreno, no el diseño: se le pregunta al LIBRO si se movió algo.
     assert.deepEqual(await store.libroJournal(), [], `${quien}: un encargo no escribe en el diario`);
     assert.deepEqual(await store.libroListContracts(), [], `${quien}: un encargo no crea contratos`);
@@ -91,13 +91,13 @@ _test('sólo el asignado entrega y sólo quien encargó cierra', () => {
   const entregado = aplicarPaso(tomado, 'entregar', { por: HACE });
   assert.throws(() => aplicarPaso(entregado, 'cerrar', { por: HACE }), (e) => e.code === 403, 'el que hace no se cierra su propio encargo');
   assert.throws(() => aplicarPaso(entregado, 'cerrar', { por: OTRO }), (e) => e.code === 403);
-  assert.equal(aplicarPaso(entregado, 'cerrar', { por: PIDE }).state, 'done');
+  assert.equal(aplicarPaso(entregado, 'cerrar', { por: PIDE }).state, 'completed');
 });
 
 _test('un encargo con dueño no se lo queda un tercero', () => {
   const conDueno = base({ assignee: HACE });
   assert.throws(() => aplicarPaso(conDueno, 'tomar', { por: OTRO }), (e) => e.code === 403 && new RegExp(HACE).test(e.message));
-  assert.equal(aplicarPaso(conDueno, 'tomar', { por: HACE }).state, 'taken');
+  assert.equal(aplicarPaso(conDueno, 'tomar', { por: HACE }).state, 'working');
 });
 
 _test('ningún paso sale de un estado que no lo admite, y los finales no se mueven', () => {
@@ -121,7 +121,7 @@ test('dos pasos desde la misma lectura: pasa uno y el otro se entera', async () 
     const b = aplicarPaso(leido, 'cancelar', { por: PIDE });
     assert.equal(await store.encargoPaso(a, leido.rev), true, `${quien}: el primero entra`);
     assert.equal(await store.encargoPaso(b, leido.rev), false, `${quien}: el segundo NO puede pisar`);
-    assert.equal((await store.encargoGet('e1')).state, 'taken', `${quien}: queda el del primero`);
+    assert.equal((await store.encargoGet('e1')).state, 'working', `${quien}: queda el del primero`);
   }
 });
 
@@ -140,7 +140,7 @@ _test('devolver deja el encargo en curso y SIN entrega: el tablero no cuenta lo 
   const entregado = aplicarPaso(aplicarPaso(base(), 'tomar', { por: HACE }), 'entregar', { por: HACE, note: 'listo' });
   assert.ok(entregado.delivered, 'la entrega tiene que quedar registrada');
   const devuelto = aplicarPaso(entregado, 'devolver', { por: PIDE, note: 'falta el caso del rev' });
-  assert.equal(devuelto.state, 'taken');
+  assert.equal(devuelto.state, 'working');
   assert.equal(devuelto.delivered, null, 'una entrega devuelta no sigue puesta');
   assert.equal(devuelto.assignee, HACE, 'sigue siendo de quien lo tenía');
   // El historial sí conserva las dos vueltas: lo que se borra es el estado, no la memoria.
@@ -171,7 +171,7 @@ _test('no se cuelga más allá del tope, ni de un padre ya cerrado', () => {
   assert.equal(p.depth, PROFUNDIDAD_MAX);
   assert.throws(() => crearEncargo({ id: 'x', from: PIDE, concept: 'uno más', parent: p }), (e) => e.code === 409 && /levels deep/.test(e.message));
   const cerrado = aplicarPaso(base(), 'cancelar', { por: PIDE });
-  assert.throws(() => crearEncargo({ id: 'y', from: PIDE, concept: 'tarde', parent: cerrado }), (e) => e.code === 409 && /already cancelled/.test(e.message));
+  assert.throws(() => crearEncargo({ id: 'y', from: PIDE, concept: 'tarde', parent: cerrado }), (e) => e.code === 409 && /already canceled/.test(e.message));
 });
 
 // ---------- 7. el tablero ----------
@@ -180,7 +180,7 @@ _test('el progreso de un padre se reporta y no se cierra solo', () => {
   const hijos = [base(), base(), base()].map((h, i) => (i === 0 ? aplicarPaso(aplicarPaso(aplicarPaso(h, 'tomar', { por: HACE }), 'entregar', { por: HACE }), 'cerrar', { por: PIDE }) : h));
   const pr = progreso(hijos);
   assert.equal(pr.total, 3);
-  assert.equal(pr.done, 1);
+  assert.equal(pr.completed, 1);
   assert.equal(pr.abiertos, 2);
   assert.equal(pr.completo, false);
   // Todos cerrados: `completo` lo DICE, pero ningún paso del padre ocurre por eso.
@@ -194,7 +194,7 @@ _test('atascado es una cuenta de tiempo, igual en cualquier máquina', () => {
   const viejo = { ...base(), updated: '2026-11-15T12:00:00.000Z' };
   const a = atascado(viejo, ahora);
   assert.equal(a.horas, 48);
-  assert.equal(a.tope, TOPES_H.open);
+  assert.equal(a.tope, TOPES_H.submitted);
   assert.match(a.razon, /nadie lo ha tomado/);
   assert.equal(atascado({ ...viejo, updated: '2026-11-17T11:00:00.000Z' }, ahora), null, 'una hora no está atascada');
   // Un encargo cerrado no se atasca: no hay nada que esperar.
@@ -208,10 +208,10 @@ _test('el tablero pone arriba lo atascado, aunque sea más nuevo que lo que no l
   // 72 h; `trabado` es más nuevo (25 h) y sí lo está, porque el de `open` son 24. Con el fixture
   // anterior (todo `open`) ordenar por fecha sola daba el mismo resultado y la mutación que
   // quitaba el criterio de atasco no hacía gritar a nadie: una simetría no prueba nada.
-  const enCurso = { ...base(), id: 'encurso', state: 'taken', assignee: HACE, updated: '2026-11-16T06:00:00.000Z' };
+  const enCurso = { ...base(), id: 'encurso', state: 'working', assignee: HACE, updated: '2026-11-16T06:00:00.000Z' };
   const trabado = { ...base(), id: 'trabado', updated: '2026-11-16T11:00:00.000Z' };
   const fresco = { ...base(), id: 'fresco', updated: '2026-11-17T11:59:00.000Z' };
-  const cerrado = { ...base(), id: 'cerrado', state: 'done' };
+  const cerrado = { ...base(), id: 'cerrado', state: 'completed' };
   assert.equal(atascado(enCurso, ahora), null, 'el fixture sólo sirve si enCurso NO está atascado');
   assert.ok(atascado(trabado, ahora), 'el fixture sólo sirve si trabado SÍ lo está');
   assert.ok(Date.parse(enCurso.updated) < Date.parse(trabado.updated), 'y si enCurso es el más viejo de los dos');
@@ -221,7 +221,7 @@ _test('el tablero pone arriba lo atascado, aunque sea más nuevo que lo que no l
   assert.equal(t.abiertos, 3, 'lo cerrado no cuenta como abierto');
   assert.equal(t.atascados, 1);
   assert.deepEqual(t.filas.map((f) => f.id), ['trabado', 'encurso', 'fresco'], 'lo atascado va arriba y el resto por antigüedad');
-  assert.equal(t.por_estado.done, 1);
+  assert.equal(t.por_estado.completed, 1);
   assert.ok(!t.filas.some((f) => f.id === 'cerrado'), 'el tablero no muestra lo cerrado');
 });
 
@@ -235,7 +235,7 @@ test('la 0010 crea la tabla y los dos índices, y los filtros los usan', async (
   const indices = db._raw.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'nyx5_encargos'").all().map((r) => r.name);
   for (const i of ['nyx5_encargos_estado', 'nyx5_encargos_padre']) assert.ok(indices.includes(i), `falta el índice ${i}`);
   // Que el índice exista no dice que la consulta lo use: se lo pregunta al planificador.
-  const plan = db._raw.prepare("EXPLAIN QUERY PLAN SELECT doc FROM nyx5_encargos WHERE json_extract(doc, '$.state') IN ('open')").all().map((r) => r.detail).join(' ');
+  const plan = db._raw.prepare("EXPLAIN QUERY PLAN SELECT doc FROM nyx5_encargos WHERE json_extract(doc, '$.state') IN ('submitted')").all().map((r) => r.detail).join(' ');
   assert.match(plan, /nyx5_encargos_estado/, `el filtro por estado tiene que usar el índice, y el plan dice: ${plan}`);
 });
 
@@ -248,7 +248,7 @@ test('los dos almacenes contestan lo mismo a las mismas preguntas', async () => 
     await store.encargoPaso(aplicarPaso(leido, 'tomar', { por: HACE }), leido.rev);
     respuestas.push({
       abiertos: (await store.encargoList({ state: ABIERTOS })).map((e) => e.id),
-      tomados: (await store.encargoList({ state: 'taken' })).map((e) => e.id),
+      tomados: (await store.encargoList({ state: 'working' })).map((e) => e.id),
       ninguno: await store.encargoList({ state: [] }),
       faltante: await store.encargoGet('no-existe'),
     });

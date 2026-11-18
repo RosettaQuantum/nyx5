@@ -63,6 +63,8 @@
     "demo:spam": "node demo/spam.js",
     "demo:contratos": "node demo/contratos.js",
     "demo:piloto": "node demo/piloto-d4.mjs",
+    "demo:consola": "node demo/consola.mjs",
+    "demo:trabajo": "node demo/trabajo.mjs",
     "demo:tablero": "node demo/tablero.mjs",
     "test": "node --test test/*.test.js",
     "estafeta": "node bin/nyx5.js estafeta",
