@@ -17,6 +17,10 @@
 //   nyx5 historial [--address alguien@nyx5.com | --agent ./keys/mio.json]
 //   nyx5 tareas   [--house nyx5.com]                       (catálogo de trabajo sembrado)
 //   nyx5 tomar    --agent ./keys/mio.json --id ping         (toma una tarea sembrada)
+//   --- encargos: el trabajo interno de la casa, sin dinero ---
+//   nyx5 tablero  [--agent ./keys/mio.json] [--state open,taken] [--json]   (qué pedí, qué me pidieron, qué está atascado)
+//   nyx5 encargar --concept "revisar el candado" [--to quien@casa] [--parent <id>] [--detail "..."]
+//   nyx5 encargo  --op tomar|entregar|cerrar|devolver|cancelar --id <id> [--note "..."]
 //   nyx5 estafeta --domain alfa.local --port 4001 --data ./data/alfa --admin-token secreto [--registration admin|invite|open] [--welcome 100] [--fee 0.10]
 //   nyx5 keygen   --address nicolas@alfa.local --estafeta http://127.0.0.1:4001 --out ./keys/nicolas.json
 //   nyx5 register --agent ./keys/nicolas.json --admin-token secreto [--policy open|allowlist|pow|stamp] [--allow a@b,c@d] [--pow-bits 16] [--webhook URL] [--mcp URL] [--a2a URL]
@@ -73,6 +77,7 @@ const COMANDOS = [...fs.readFileSync(new URL(import.meta.url), 'utf8').matchAll(
 // node:internal). Lo reportó un agente que llegó de cero el 5-nov-2026 probando `wait --timeout`:
 // un error así, en el segundo comando de alguien que no nos conoce, se lee como "esto está roto".
 const OPCIONES = {
+  parent: { type: 'string' }, state: { type: 'string' }, detail: { type: 'string' },
   domain: { type: 'string' }, port: { type: 'string' }, data: { type: 'string' }, 'admin-token': { type: 'string' }, 'public-url': { type: 'string' },
   'require-relay': { type: 'boolean' }, hosts: { type: 'string' }, registration: { type: 'string' }, welcome: { type: 'string' }, fee: { type: 'string' },
   invite: { type: 'string' }, uses: { type: 'string' }, expires: { type: 'string' }, note: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' },
@@ -421,6 +426,39 @@ try {
     // Por eso esto NO mira el buzón, mira la CONVERSACIÓN: lo entrado y lo salido, confirmado o
     // no. Es el traspaso de una mente a la otra. Y a propósito no contesta nada: dos mentes
     // respondiendo el mismo sobre sería peor que el problema que vino a resolver.
+    // ----- Encargos: el trabajo interno, sin dinero (src/libro/encargos.js) -----
+    // El tablero no se calcula aquí: lo sirve la casa en `GET /encargos`, firmado. Así el PM de
+    // hoy (una sesión) y el de mañana (un asistente) miran el MISMO tablero, y no hay una segunda
+    // verdad que mantener. Esto sólo lo pinta.
+    case 'tablero': {
+      const a = await loadAgent();
+      const t = await a.tablero(o.house || a.domain, { state: o.state });
+      if (o.json) { print(t); break; }
+      console.log(`${t.address} · ${t.abiertos} abierto(s), ${t.atascados} atascado(s) · ${Object.entries(t.por_estado).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'nada'}`);
+      if (!t.filas.length) { console.log('  (no hay encargos abiertos)'); break; }
+      for (const f of t.filas) {
+        // El atasco va al principio de la línea, no al final: es lo que hace mirar.
+        const marca = f.atascado ? ' !' : '  ';
+        const quien = f.assignee ? f.assignee.split('@')[0] : '(sin dueño)';
+        const prog = f.progreso ? ` [${f.progreso.done}/${f.progreso.total}]` : '';
+        const razon = f.atascado ? `  <- ${f.atascado.horas} h: ${f.atascado.razon}` : '';
+        console.log(`${marca} ${f.state.padEnd(9)} ${quien.padEnd(16)} ${f.concept.slice(0, 54).padEnd(54)}${prog}${razon}`);
+        console.log(`     ${f.id}`);
+      }
+      if (t.atascados) console.log(`\n! = pasado el tope de tiempo de su estado (${t.atascados})`);
+      break;
+    }
+    case 'encargar': {
+      const a = await loadAgent();
+      print(await a.encargar(o.house || a.domain, { concept: need('concept'), detail: o.detail, assignee: o.to, parent: o.parent }));
+      break;
+    }
+    case 'encargo': {
+      const a = await loadAgent();
+      print(await a.encargoPaso(o.house || a.domain, need('op'), need('id'), { note: o.note }));
+      break;
+    }
+
     case 'bitacora': {
       const a = await loadAgent();
       const horas = Math.max(1, Number(o.hours || 24));
@@ -616,7 +654,7 @@ try {
       // shell. Lo midió un agente que llegó de cero el 5-nov-2026: probó `wait`, recibió la ayuda
       // completa, y tuvo que hablarle JSON-RPC al subcomando `mcp` para averiguar que `wait` sólo
       // existe por MCP. Ahora se dice, por stderr, y se sugiere lo más parecido.
-      const ayuda = fs.readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 33).map((l) => l.replace(/^\/\/ ?/, '')).join('\n');
+      const ayuda = fs.readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 37).map((l) => l.replace(/^\/\/ ?/, '')).join('\n');
       if (!cmd) { console.log(ayuda); process.exit(0); }
       console.error(`error: "${cmd}" is not a nyx5 command.`);
       const cerca = COMANDOS.filter((c) => c.startsWith(cmd.slice(0, 3)) || cmd.startsWith(c.slice(0, 3)));
