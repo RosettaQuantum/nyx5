@@ -200,6 +200,49 @@ test('la app web está en inglés y hace lo que promete', async () => {
   assert.match(APP_HTML, /yourname/, 'el ejemplo del campo debe ser genérico y en inglés');
 });
 
+// La consola nació en español a propósito (18-nov-2026): es la pantalla que mira Nicholas desde
+// el celular. Él decidió ese mismo día pasarla a inglés, por la misma razón que la app: se sirve
+// del dominio público y cualquiera con una sesión la abre. Este guardia es el de la app, con una
+// diferencia que importa: la mitad de las frases de esta pantalla viven DENTRO del guion (las
+// cifras, el aviso de sesión vencida, el pie), así que un barrido del texto visible no vería casi
+// nada. Se busca en todo el documento.
+test('la consola está en inglés y sigue siendo el tablero', async () => {
+  const { CONSOLA_HTML } = await import('../src/plataformas/consola-html.js');
+  assert.match(CONSOLA_HTML, /<html lang="en">/);
+  // Los NOMBRES DE CAMPO que manda la casa (`d.abiertos`, `d.te_necesitan`, `f.atascado`) están en
+  // español y seguirán estándolo: son el contrato de `/consola/datos`, y un nombre de campo no lo
+  // lee ninguna persona. Se quitan antes de mirar, o este guardia obligaría a renombrar la API
+  // para arreglar un texto — que es confundir el objeto con el número. Lo descubrió él mismo en su
+  // primera corrida, fallando por `d.abiertos`.
+  const visible = CONSOLA_HTML.replace(/\.[A-Za-z_$][\w$]*/g, '');
+  const conEspanol = [...visible.matchAll(/[^<>"'`\n]*[áéíóúñ¿¡][^<>"'`\n]*/g)].map((m) => m[0].trim()).filter(Boolean);
+  assert.deepEqual(conEspanol, [], `la consola muestra texto en español:\n  ${conEspanol.join('\n  ')}`);
+  // Las tildes no alcanzan: "Cargando", "abiertos" y "atascados" pasan ese filtro enteras, y son
+  // justo las que quedarían si alguien traduce a medias. Cada una de estas estuvo de verdad en la
+  // versión que se desplegó, así que la lista se escribe contra el defecto real, no contra un
+  // ejemplo inventado.
+  for (const rastro of ['Tablero', 'Cargando', 'abiertos', 'atascados', 'pedido por', 'Actualizado', 'se refresca', 'La casa contest', 'sin due']) {
+    assert.ok(!visible.includes(rastro), `la consola conserva "${rastro}"`);
+  }
+  // Y sigue siendo el tablero: las cuatro cifras y la pantalla de sesión, que es lo único que ve
+  // quien llega sin token.
+  for (const frase of ['>Board<', "'open'", "'need you'", "'signalled'", "'stuck'", 'Your key never leaves your computer', 'nyx5 consola']) {
+    assert.ok(CONSOLA_HTML.includes(frase), `la consola perdió "${frase}"`);
+  }
+});
+
+// El .html se edita y el .js se genera (§6: el HTML no pasa por el contexto de nadie). Nada
+// obligaba a regenerarlo: editar el .html y olvidar el script deja la pantalla vieja desplegada
+// con el repositorio diciendo que está nueva, que es el modo de fallo de §1 en su forma más
+// barata de evitar.
+test('el HTML generado es el que está en web/, no una copia vieja', async () => {
+  const { CONSOLA_HTML } = await import('../src/plataformas/consola-html.js');
+  const fuente = fs.readFileSync(path.join(raiz, 'web/consola.html'), 'utf8');
+  assert.equal(CONSOLA_HTML, fuente, 'web/consola.html cambió sin regenerar: node scripts/build-consola-html.mjs');
+  const { APP_HTML } = await import('../src/plataformas/app-html.js');
+  assert.equal(APP_HTML, fs.readFileSync(path.join(raiz, 'web/app.html'), 'utf8'), 'web/app.html cambió sin regenerar: node scripts/build-app-html.mjs');
+});
+
 // Renombrar un campo de una respuesta pública rompe a TODO cliente ya instalado, en silencio:
 // el agente ve "no hay tareas" y se va, y ninguna prueba se entera porque el servidor y el
 // cliente del repositorio cambiaron a la vez. Pasó de verdad al traducir /tareas al inglés.

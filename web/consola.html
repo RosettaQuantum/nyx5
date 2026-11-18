@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Tablero</title>
+<title>Board</title>
 <style>
   :root{
     --papel:#fbfbf9; --panel:#fff; --linea:#e4e4df; --tinta:#16181b; --suave:#6b6f76;
@@ -47,24 +47,24 @@
 <body>
 <div class="caja">
   <header>
-    <h1>Tablero</h1>
+    <h1>Board</h1>
     <span class="quien" id="quien"></span>
   </header>
-  <div id="cuerpo"><p class="quien">Cargando…</p></div>
+  <div id="cuerpo"><p class="quien">Loading...</p></div>
   <footer id="pie"></footer>
 </div>
 
 <script>
-// El token llega en el FRAGMENTO de la URL. El fragmento no se manda al servidor: no queda en el
-// registro de accesos, ni en el referrer, ni en el historial que se sincroniza. Se saca de la
-// barra en cuanto se lee, y se guarda por pestaña: muere al cerrarla y caduca solo en 12 horas.
+// The token arrives in the URL FRAGMENT. A fragment is never sent to the server: it stays out of
+// the access log, out of the referrer and out of any synced history. It is stripped from the
+// address bar as soon as it is read, and kept per tab: it dies with the tab and expires in 12 h.
 const CLAVE = 'nyx5.consola';
 let token = null;
 try {
   const m = /[#&]t=([A-Za-z0-9_-]+)/.exec(location.hash || '');
   if (m) { token = m[1]; sessionStorage.setItem(CLAVE, token); history.replaceState(null, '', location.pathname); }
   else token = sessionStorage.getItem(CLAVE);
-} catch { /* sin sessionStorage igual funciona mientras no se recargue */ }
+} catch { /* without sessionStorage it still works until the page is reloaded */ }
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -72,18 +72,18 @@ const corto = (d) => (d || '').split('@')[0];
 const hace = (iso) => {
   const h = Math.floor((Date.now() - Date.parse(iso)) / 3600000);
   if (!isFinite(h)) return '';
-  if (h < 1) return 'hace menos de una hora';
-  if (h < 24) return `hace ${h} h`;
+  if (h < 1) return 'less than an hour ago';
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  return `hace ${d} ${d === 1 ? 'día' : 'días'}`;
+  return `${d} ${d === 1 ? 'day' : 'days'} ago`;
 };
 
 function pedirSesion(msg) {
   $('quien').textContent = '';
   $('cuerpo').innerHTML = `<div class="aviso"><p><b>${esc(msg)}</b></p>
-    <p>Abre una sesión nueva desde tu computador y vuelve a entrar por el enlace que imprime:</p>
+    <p>Open a new session from your own computer and come back through the link it prints:</p>
     <p><code>nyx5 consola</code></p>
-    <p class="quien">La llave nunca sale de tu computador: esta pantalla sólo lee, y la sesión caduca sola.</p></div>`;
+    <p class="quien">Your key never leaves your computer: this screen only reads, and the session expires on its own.</p></div>`;
   $('pie').textContent = '';
 }
 
@@ -91,14 +91,14 @@ function pintar(d) {
   $('quien').textContent = d.address;
   const cifra = (n, t, urge) => `<div class="cifra${urge && n ? ' urge' : ''}"><b>${n}</b><span>${t}</span></div>`;
   const cabeza = `<div class="cifras">
-    ${cifra(d.abiertos, 'abiertos', false)}
-    ${cifra(d.te_necesitan, 'te necesitan', true)}
-    ${cifra(d.bloqueados, 'con señal', true)}
-    ${cifra(d.atascados, 'atascados', true)}
+    ${cifra(d.abiertos, 'open', false)}
+    ${cifra(d.te_necesitan, 'need you', true)}
+    ${cifra(d.bloqueados, 'signalled', true)}
+    ${cifra(d.atascados, 'stuck', true)}
   </div>`;
 
   if (!d.filas.length) {
-    $('cuerpo').innerHTML = cabeza + '<div class="aviso">No hay trabajo abierto. Nada que mirar, y eso también es un dato.</div>';
+    $('cuerpo').innerHTML = cabeza + '<div class="aviso">No open work. Nothing to look at, and that is a fact too.</div>';
     return;
   }
 
@@ -113,31 +113,31 @@ function pintar(d) {
     ].join('');
     const razon = f.senal
       ? `<p class="razon">${esc(f.senal.kind)}${f.senal.reason ? ': ' + esc(f.senal.reason) : ''}</p>`
-      : f.atascado ? `<p class="razon">${f.atascado.horas} h sin moverse — ${esc(f.atascado.razon)}</p>` : '';
-    const progreso = f.progreso ? ` · ${f.progreso.completed}/${f.progreso.total} hecho` : '';
+      : f.atascado ? `<p class="razon">${f.atascado.horas}h without moving — ${esc(f.atascado.razon)}</p>` : '';
+    const progreso = f.progreso ? ` · ${f.progreso.completed}/${f.progreso.total} done` : '';
     return `<li class="${urge ? 'urge' : ''}${f.abierto ? '' : ' cerrado'}">
       <div class="fila1"><span class="titulo">${esc(f.titulo)}</span>${etiquetas}</div>
       ${razon}
-      <p class="meta">${esc(corto(f.quien) || 'sin dueño')} · pedido por ${esc(corto(f.de))} · ${esc(hace(f.actualizado))}${progreso}</p>
+      <p class="meta">${esc(corto(f.quien) || 'unassigned')} · asked by ${esc(corto(f.de))} · ${esc(hace(f.actualizado))}${progreso}</p>
       <p class="meta id">${esc(f.id)}</p>
     </li>`;
   }).join('');
 
   $('cuerpo').innerHTML = cabeza + '<ul>' + filas + '</ul>';
-  $('pie').textContent = `Actualizado ${new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })} · se refresca solo cada minuto`;
+  $('pie').textContent = `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · refreshes itself every minute`;
 }
 
 async function cargar() {
-  if (!token) return pedirSesion('No hay sesión abierta.');
+  if (!token) return pedirSesion('No session open.');
   let r;
   try {
     r = await fetch('/consola/datos', { headers: { authorization: 'Nyx5-Consola ' + token } });
   } catch {
-    $('pie').textContent = 'Sin conexión. Se reintenta en un minuto.';
+    $('pie').textContent = 'No connection. Retrying in a minute.';
     return;
   }
-  if (r.status === 401) { try { sessionStorage.removeItem(CLAVE); } catch {} token = null; return pedirSesion('La sesión venció.'); }
-  if (!r.ok) { $('pie').textContent = `La casa contestó ${r.status}. Se reintenta en un minuto.`; return; }
+  if (r.status === 401) { try { sessionStorage.removeItem(CLAVE); } catch {} token = null; return pedirSesion('The session expired.'); }
+  if (!r.ok) { $('pie').textContent = `The house answered ${r.status}. Retrying in a minute.`; return; }
   pintar(await r.json());
 }
 
