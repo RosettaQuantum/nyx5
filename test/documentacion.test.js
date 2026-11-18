@@ -121,51 +121,12 @@ test('server.json y package.json coinciden, y cumplen lo que el registro oficial
 // Todo lo que un agente o un humano LEE va en inglés (decisión de Nicholas, 8-sep-2026); el
 // repositorio por dentro sigue en español. La frontera es fácil de cruzar sin darse cuenta —un
 // mensaje de error nuevo, un console.log— y nadie se entera hasta que un extranjero lo ve.
-// DEUDA DECLARADA, no escondida. Son los 37 mensajes en español que ya salían al usuario ANTES
-// del 17-nov-2026, encontrados el día en que este guardia dejó de mentir. Traducirlos es texto que
-// lee un usuario, así que es decisión de Nicholas (§5 de CLAUDE.md) y no se hace de callada.
-//
-// Lo que esta lista SÍ garantiza: no crece. Un mensaje nuevo en español falla cerrado, y uno
-// traducido tiene que salir de aquí o la prueba avisa que la lista quedó vieja.
-const PENDIENTES_DE_TRADUCIR = [
-  'src/correo/asistente.js :: la bóveda no tiene la llave de este asistente',
-  'src/correo/ideas.js :: la bóveda no tiene la llave de ideas@',
-  'src/libro/libro.js :: cotización malformada',
-  'src/libro/libro.js :: cotización vencida',
-  'src/libro/libro.js :: cotización ya aceptada',
-  'src/libro/libro.js :: el vendedor no puede ser su propio referidor',
-  'src/libro/libro.js :: fee (${this.feeBps} bps) + comisión (${q.referrer.share} bps) supera el 100% del precio',
-  'src/libro/libro.js :: firma de la cotización inválida',
-  'src/libro/libro.js :: la cotización es para la casa ${q.house}, no ${this.domain}',
-  'src/libro/libro.js :: la cotización no está dirigida a quien la acepta',
-  'src/libro/libro.js :: los montos son enteros (tokens)',
-  'src/libro/libro.js :: putContract fuera de transacción',
-  'src/libro/libro.js :: putMandate fuera de transacción',
-  'src/libro/libro.js :: putSello fuera de transacción',
-  'src/libro/libro.js :: referidor inválido en la cotización',
-  'src/libro/libro.js :: referrer.share debe ser un entero de basis points > 0',
-  'src/libro/libro.js :: service debe ser el id de un servicio de la ficha (letras minúsculas, dígitos y guiones)',
-  'src/libro/libro.js :: árbitro inválido en la cotización',
-  'src/libro/tareas.js :: la tarea ${t.id} necesita un precio entero positivo',
-  'src/libro/tareas.js :: la tarea ${t.id} no declara prueba de aceptación: sin prueba no se paga',
-  'src/nucleo/keccak.js :: hex inválido: ${String(hex).slice(0, 20)}',
-  'src/nucleo/objetos.js :: clave de objeto inválida: ${JSON.stringify(String(clave).slice(0, 60))}',
-  'src/nucleo/secp256k1.js :: secp256k1: dirección inválida',
-  'src/nucleo/secp256k1.js :: secp256k1: el hash son 32 bytes',
-  'src/nucleo/secp256k1.js :: secp256k1: el punto no está en la curva',
-  'src/nucleo/secp256k1.js :: secp256k1: la firma son 65 bytes (r || s || v)',
-  'src/nucleo/secp256k1.js :: secp256k1: la llave privada son 32 bytes',
-  'src/nucleo/secp256k1.js :: secp256k1: se firma un hash de 32 bytes, no un mensaje',
-  'src/nucleo/secp256k1.js :: secp256k1: v inválido (${f[64]})',
-  'src/puentes/x402-pagador.js :: x402 pagador: ${nombre} debe ser un entero sin signo en unidades atómicas',
-  'src/puentes/x402-pagador.js :: x402 pagador: dirección inválida "${String(a).slice(0, 20)}"',
-  'src/puentes/x402-pagador.js :: x402 pagador: el precio (${monto}) supera el tope (${limite}); no se firma',
-  'src/puentes/x402-pagador.js :: x402 pagador: el servidor rechazó el pago${motivo ? ',
-  'src/puentes/x402-pagador.js :: x402 pagador: from (${from}) no es la dirección de la llave (${propia})',
-  'src/puentes/x402-pagador.js :: x402 pagador: no sé pagar en ${requisito.network}',
-  'src/puentes/x402-pagador.js :: x402 pagador: tope (unidades atómicas) es obligatorio',
-  'src/puentes/x402-pagador.js :: x402 pagador: validBefore debe ser mayor que validAfter',
-];
+// La lista de deuda quedó VACÍA el 17-nov-2026: Nicholas aprobó traducir los 37 (§5) y se
+// tradujeron los 37. Se conserva el array, no el recuerdo: si mañana alguien mete un mensaje en
+// español, la prueba falla cerrado y no hay dónde esconderlo. Agregar algo aquí es declarar una
+// deuda a la vista, nunca taparla; y un mensaje que se traduce tiene que salir de la lista o la
+// prueba avisa que quedó vieja.
+const PENDIENTES_DE_TRADUCIR = [];
 
 // Barrido recursivo: la fuente se descubre, no se enumera.
 const barrer = (dir, base = new URL('../', import.meta.url)) => {
@@ -194,9 +155,10 @@ const barrer = (dir, base = new URL('../', import.meta.url)) => {
 test('ningún mensaje NUEVO que sale al usuario quedó en español', () => {
   const fuentes = [...barrer('src'), ...barrer('bin')];
   assert.ok(fuentes.length > 20, `el barrido tiene que encontrar la fuente, y encontró ${fuentes.length}`);
-  // Sale al usuario: reason:, los Error que se lanzan (con o sin código delante), y lo que imprime
-  // el CLI.
-  const salida = /(?:reason:\s*|new (?:Libro)?Error\(\s*(?:\d+\s*,\s*)?|console\.log\(|console\.error\(|fail\(\d+,\s*|must\([^,]+,\s*\d+,\s*)(['`])([^'`]{8,})\1/g;
+  // Sale al usuario: reason:, los Error que se lanzan (con o sin código delante), lo que imprime
+  // el CLI, y `fail(...)` — que en `politica.js` se llama SIN código delante, forma que el patrón
+  // también perdía: así se le escaparon las razones de rechazo que ve TODO remitente.
+  const salida = /(?:reason:\s*|new (?:Libro)?Error\(\s*(?:\d+\s*,\s*)?|console\.log\(|console\.error\(|fail\((?:\d+,\s*)?|must\([^,]+,\s*\d+,\s*)(['`])([^'`]{8,})\1/g;
   const tilde = /[áéíóúñ¿¡]/;
   // Dos o más palabras funcionales del español seguidas es la señal; una sola da falsos positivos
   // (`la` y `de` existen en nombres propios y en inglés técnico).

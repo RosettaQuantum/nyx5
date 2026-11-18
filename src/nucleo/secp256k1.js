@@ -105,7 +105,7 @@ function llavePrivada(privKey) {
   let bytes;
   try { bytes = privKey instanceof Uint8Array ? privKey : deHex(privKey); }
   catch { throw new Error('secp256k1: la llave privada no es hex de 32 bytes'); }
-  if (bytes.length !== 32) throw new Error('secp256k1: la llave privada son 32 bytes');
+  if (bytes.length !== 32) throw new Error('secp256k1: the private key is 32 bytes');
   const d = aBig(bytes);
   if (d === 0n || d >= N) throw new Error('secp256k1: llave privada fuera de rango');
   return { d, bytes };
@@ -132,7 +132,7 @@ export function direccionDeClavePublica(pub64) {
 // dirección en minúsculas es ≥ 8. Es un checksum, no una dirección distinta.
 export function checksum(hex40) {
   const bajo = String(hex40).replace(/^0x/i, '').toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(bajo)) throw new Error('secp256k1: dirección inválida');
+  if (!/^[0-9a-f]{40}$/.test(bajo)) throw new Error('secp256k1: invalid address');
   const h = aHex(keccak256(bajo));
   let out = '0x';
   for (let i = 0; i < 40; i++) out += parseInt(h[i], 16) >= 8 ? bajo[i].toUpperCase() : bajo[i];
@@ -171,7 +171,7 @@ function nonceRfc6979(hash32, privBytes) {
 // tiene UNA firma válida y no dos.
 export function firmar(hash, privKey) {
   const h = hash instanceof Uint8Array ? hash : deHex(hash);
-  if (h.length !== 32) throw new Error('secp256k1: se firma un hash de 32 bytes, no un mensaje');
+  if (h.length !== 32) throw new Error('secp256k1: what gets signed is a 32-byte hash, not a message');
   const { d, bytes } = llavePrivada(privKey);
   const z = aBig(h);
   let k = nonceRfc6979(h, bytes);
@@ -197,12 +197,12 @@ export function firmar(hash, privKey) {
 export function recuperarClavePublica(hash, firma) {
   const h = hash instanceof Uint8Array ? hash : deHex(hash);
   const f = firma instanceof Uint8Array ? firma : deHex(firma);
-  if (h.length !== 32) throw new Error('secp256k1: el hash son 32 bytes');
-  if (f.length !== 65) throw new Error('secp256k1: la firma son 65 bytes (r || s || v)');
+  if (h.length !== 32) throw new Error('secp256k1: the hash is 32 bytes');
+  if (f.length !== 65) throw new Error('secp256k1: the signature is 65 bytes (r || s || v)');
   const r = aBig(f.subarray(0, 32)), s = aBig(f.subarray(32, 64));
   let v = f[64];
   if (v === 0 || v === 1) v += 27;
-  if (v !== 27 && v !== 28) throw new Error(`secp256k1: v inválido (${f[64]})`);
+  if (v !== 27 && v !== 28) throw new Error(`secp256k1: invalid v (${f[64]})`);
   if (r === 0n || r >= N || s === 0n || s >= N) throw new Error('secp256k1: r o s fuera de rango');
   if (s > N / 2n) throw new Error('secp256k1: s en forma alta; se exige s ≤ n/2');
   const recid = v - 27;
@@ -211,7 +211,7 @@ export function recuperarClavePublica(hash, firma) {
   // y = sqrt(x^3 + 7) mod p; como p ≡ 3 (mod 4), la raíz es a^((p+1)/4).
   const alfa = mod(x * x * x + 7n, P);
   let y = modPow(alfa, (P + 1n) / 4n, P);
-  if ((y * y) % P !== alfa) throw new Error('secp256k1: el punto no está en la curva');
+  if ((y * y) % P !== alfa) throw new Error('secp256k1: the point is not on the curve');
   if (Number(y & 1n) !== (recid & 1)) y = P - y;
   const z = aBig(h);
   const ri = inv(r, N);

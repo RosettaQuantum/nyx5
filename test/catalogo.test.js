@@ -128,7 +128,7 @@ test('una cotización a un servicio que no está en la ficha se rechaza, en el c
   const r = await compra.awaitReceipt((await compra.accept(await receiveQuote(compra, libre))).id);
   assert.equal(r.receipt.contract.state, 'settled');
   // Un id de servicio que no es un id (forma inválida) no llega a firmarse.
-  assert.throws(() => Libro.buildQuote({ seller: vende.address, buyer: compra.address, house: H, price: 1, concept: 'x', service: 'Con Espacios' }, vende.keys), /service debe ser/);
+  assert.throws(() => Libro.buildQuote({ seller: vende.address, buyer: compra.address, house: H, price: 1, concept: 'x', service: 'Con Espacios' }, vende.keys), /service must be/);
 });
 
 test('herramientas: nyx5_quote acepta `service`, nyx5_profile set/get muestran services, y el conteo no cambió', async () => {

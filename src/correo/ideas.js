@@ -122,7 +122,7 @@ export async function atenderIdeas(est, { maxPorTick = 20, maxDescartesPorTick =
     if (!(await est.store.kvPutIfAbsent('ideas-turno', e.id, { at: new Date().toISOString() }, Date.now() + TURNO_MS))) continue;
     try {
       const agente = await est.agenteDeBoveda(LOCAL);
-      if (!agente) throw new Error('la bóveda no tiene la llave de ideas@');
+      if (!agente) throw new Error('the vault does not hold the key for ideas@');
       // Un número por sobre: si un tick anterior asignó número y no llegó a confirmar, se reutiliza.
       let n = Number((await est.store.kvGet(NS, `sobre:${e.id}`))?.n) || 0;
       if (!n) {

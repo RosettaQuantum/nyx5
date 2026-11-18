@@ -307,7 +307,7 @@ test('D5 · comisión de referido: el asiento pasa a 4 líneas, cuadra en cero, 
 test('D5 · el fee de la casa más la comisión no pueden superar el 100% del precio', async () => {
   const mala = Libro.buildQuote({ seller: vendedor.address, buyer: nicolas.address, house: H, contract: 'spot',
     price: 100, concept: 'x', referrer: { address: verifica.address, share: 9500 } }, vendedor.keys); // 1000 + 9500 > 10000
-  await assert.rejects(() => alfa.libro.verifyQuote(mala, nicolas.address), /supera el 100%/);
+  await assert.rejects(() => alfa.libro.verifyQuote(mala, nicolas.address), /more than 100%/);
   // y una comisión no entera o <= 0 se rechaza ya al construir la cotización
   assert.throws(() => Libro.buildQuote({ seller: vendedor.address, buyer: nicolas.address, house: H, contract: 'spot',
     price: 100, concept: 'x', referrer: { address: verifica.address, share: 0 } }, vendedor.keys), /basis points/);

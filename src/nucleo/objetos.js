@@ -32,7 +32,7 @@ export class ObjetosDisco {
   // La clave ya está acotada a `blobs/<uuid>` por quien llama; aquí se vuelve a comprobar, porque
   // un almacén que escribe donde le digan es un traversal esperando a que alguien se confunda.
   _ruta(clave) {
-    if (!/^blobs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clave)) throw new Error(`clave de objeto inválida: ${JSON.stringify(String(clave).slice(0, 60))}`);
+    if (!/^blobs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clave)) throw new Error(`invalid object key: ${JSON.stringify(String(clave).slice(0, 60))}`);
     return this.path.join(this.dir, clave.slice('blobs/'.length));
   }
   async put(clave, bytes) {

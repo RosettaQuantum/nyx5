@@ -24,9 +24,9 @@ const dia = (t = Date.now()) => iso(t).slice(0, 10);
 export function normalizarTarea(t) {
   if (!t?.id || !t?.concept) throw new LibroError(400, 'una tarea sembrada necesita id y concept');
   const precio = Number(t.price);
-  if (!Number.isInteger(precio) || precio <= 0) throw new LibroError(400, `la tarea ${t.id} necesita un precio entero positivo`);
+  if (!Number.isInteger(precio) || precio <= 0) throw new LibroError(400, `task ${t.id} needs a positive integer price`);
   const verify = Array.isArray(t.verify) ? t.verify : (t.verify ? [t.verify] : []);
-  if (!verify.length) throw new LibroError(400, `la tarea ${t.id} no declara prueba de aceptación: sin prueba no se paga`);
+  if (!verify.length) throw new LibroError(400, `task ${t.id} declares no acceptance test: no proof, no payment`);
   // `literal` (hashea este texto) y `canonico` (hashea la forma canonica de este objeto) son
   // la FUENTE de la que se derivan enunciado, instrucciones y hash esperado. Se conservan para
   // que la prueba pueda recalcular el hash y gritar si alguien los desincroniza.

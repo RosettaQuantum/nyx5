@@ -217,20 +217,20 @@ export function validarAdjuntos(attachments, { cifrado = true } = {}) {
 export function validateEnvelope(env, { maxBytes = 1_048_576 } = {}) {
   const fail = (reason) => ({ ok: false, code: 400, reason });
   if (!env || typeof env !== 'object') return fail('sobre no es un objeto');
-  if (env.nyx5 !== '1') return fail('versión no soportada (se espera nyx5="1")');
+  if (env.nyx5 !== '1') return fail('unsupported version (expected nyx5="1")');
   // Charset acotado: el id viaja como clave al almacenamiento (dedupe, buzones); nada de traversal.
-  if (typeof env.id !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(env.id)) return fail('id inválido (se espera [A-Za-z0-9._:-]{8,128})');
-  try { parseAddress(env.from); } catch { return fail('from inválido'); }
-  if (!Array.isArray(env.to) || env.to.length < 1 || env.to.length > 50) return fail('to debe ser una lista de 1 a 50 direcciones');
+  if (typeof env.id !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(env.id)) return fail('invalid id (expected [A-Za-z0-9._:-]{8,128})');
+  try { parseAddress(env.from); } catch { return fail('invalid from'); }
+  if (!Array.isArray(env.to) || env.to.length < 1 || env.to.length > 50) return fail('to must be a list of 1 to 50 addresses');
   for (const t of env.to) { try { parseAddress(t); } catch { return fail(`invalid recipient: ${t}`); } }
-  if (!TYPES.has(env.type)) return fail(`type inválido: ${env.type}`);
+  if (!TYPES.has(env.type)) return fail(`invalid type: ${env.type}`);
   if (Number.isNaN(Date.parse(env.created))) return fail('created debe ser ISO-8601');
   if (env.expires != null && Number.isNaN(Date.parse(env.expires))) return fail('expires debe ser ISO-8601');
   // Entrega diferida: el sobre espera en la cola hasta esta fecha (la cola ya programa por next_attempt).
   if (env.deliver_after != null) {
     if (Number.isNaN(Date.parse(env.deliver_after))) return fail('deliver_after debe ser ISO-8601');
     // Un sobre que vence antes de la fecha en que debe entregarse jamás llegaría: se rechaza al enviar.
-    if (env.expires != null && Date.parse(env.expires) <= Date.parse(env.deliver_after)) return fail('deliver_after es posterior a expires: el sobre vencería antes de entregarse');
+    if (env.expires != null && Date.parse(env.expires) <= Date.parse(env.deliver_after)) return fail('deliver_after is later than expires: the envelope would expire before being delivered');
   }
   const hasPlain = env.content && typeof env.content === 'object' && typeof env.content.media === 'string';
   const hasEnc = env.encrypted && typeof env.encrypted === 'object' && typeof env.encrypted.ct === 'string';
