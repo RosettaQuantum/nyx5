@@ -384,7 +384,7 @@ export async function atenderAsistentes(est, { maxPorTick = 3, maxRebotesPorTick
 
 async function responder(est, local, cfg, rec, m) {
   const agente = await est.agenteDeBoveda(local);
-  if (!agente) throw new Error('la bóveda no tiene la llave de este asistente');
+  if (!agente) throw new Error('the vault does not hold the key for this assistant');
   const de = m.envelope.from;
   const propia = `${local}@${est.domain}`;
   // Un recordatorio que el agente se mandó a sí mismo: se atiende (es lo que lo vuelve vivo) pero

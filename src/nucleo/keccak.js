@@ -111,7 +111,7 @@ export const keccak256Hex = (entrada) => aHex(keccak256(entrada));
 // Hex (con o sin 0x) → Uint8Array. Falla cerrado: un hex de largo impar o con basura no se adivina.
 export function deHex(hex) {
   const h = String(hex).replace(/^0x/i, '');
-  if (h.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(h)) throw new Error(`hex inválido: ${String(hex).slice(0, 20)}`);
+  if (h.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(h)) throw new Error(`invalid hex: ${String(hex).slice(0, 20)}`);
   const out = new Uint8Array(h.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
   return out;

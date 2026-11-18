@@ -60,7 +60,7 @@ test('keccak256 no es sha3-256: el relleno cambia y el resultado también', () =
   // Los typehash que publica el contrato de USDC (EIP-3009) y el de EIP-712 salen de aquí.
   assert.equal(keccak256Hex(pagador.TIPO_TRANSFER), '7c7c6cdb67a18743f49ec6fa9b35f50d52ed05cbed4cc592e13b44501c1a2267');
   assert.equal(keccak256Hex(pagador.TIPO_DOMINIO), '8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f');
-  assert.throws(() => deHex('abc'), /hex inválido/);
+  assert.throws(() => deHex('abc'), /invalid hex/);
   assert.throws(() => keccak256(42), /Uint8Array o string/);
 });
 
@@ -110,9 +110,9 @@ test('recuperar falla cerrado: firma alterada, s alta, v inválido o largo incor
   alta.set(deHex((secp.N - f.s).toString(16).padStart(64, '0')), 32);
   assert.throws(() => secp.recuperarDireccion(z, alta), /forma alta/);
   const malV = new Uint8Array(f.firma); malV[64] = 29;
-  assert.throws(() => secp.recuperarDireccion(z, malV), /v inválido/);
+  assert.throws(() => secp.recuperarDireccion(z, malV), /invalid v/);
   assert.throws(() => secp.recuperarDireccion(z, f.firma.subarray(0, 64)), /65 bytes/);
-  assert.throws(() => secp.firmar('0x1234', LLAVE_2), /32 bytes/);
+  assert.throws(() => secp.firmar('0x1234', LLAVE_2), /32-byte hash/);
 });
 
 // ---------- EIP-712 / EIP-3009 ----------
@@ -128,7 +128,7 @@ test('el separador de dominio EIP-712 coincide con el ejemplo del EIP y con el q
   // El dominio se lee de la tabla de x402.js: cambiarla ahí cambia esto.
   assert.equal(pagador.dominioDe('eip155:84532').name, x402.TOKEN_USD['eip155:84532'].name);
   assert.equal(pagador.dominioDe('eip155:8453').chainId, 8453n);
-  assert.throws(() => pagador.dominioDe('eip155:56'), /no sé pagar/);
+  assert.throws(() => pagador.dominioDe('eip155:56'), /do not know how to pay/);
 });
 
 test('la autorización EIP-3009 firmada se recupera como `from`, y en otra red NO', () => {
@@ -151,13 +151,13 @@ test('la autorización EIP-3009 firmada se recupera como `from`, y en otra red N
 test('firmar exige que `from` sea la dirección de la llave, un nonce de 32 bytes y una ventana coherente', () => {
   const base = { network: RED, from: DIR_1, to: COBRA, value: '1', validAfter: '0', validBefore: '10', nonce: '0x' + '22'.repeat(32), privKey: LLAVE_1 };
   pagador.firmarAutorizacion(base);
-  assert.throws(() => pagador.firmarAutorizacion({ ...base, from: DIR_2 }), /no es la dirección de la llave/);
+  assert.throws(() => pagador.firmarAutorizacion({ ...base, from: DIR_2 }), /is not the address of the key/);
   assert.throws(() => pagador.firmarAutorizacion({ ...base, nonce: '0x1234' }), /32 bytes/);
-  assert.throws(() => pagador.firmarAutorizacion({ ...base, value: '1.5' }), /entero sin signo/);
-  assert.throws(() => pagador.firmarAutorizacion({ ...base, value: -1 }), /entero sin signo/);
-  assert.throws(() => pagador.firmarAutorizacion({ ...base, validBefore: '0' }), /mayor que validAfter/);
-  assert.throws(() => pagador.firmarAutorizacion({ ...base, to: 'dead' }), /dirección inválida/);
-  assert.throws(() => pagador.firmarAutorizacion({ ...base, network: 'eip155:56' }), /no sé pagar/);
+  assert.throws(() => pagador.firmarAutorizacion({ ...base, value: '1.5' }), /unsigned integer in atomic units/);
+  assert.throws(() => pagador.firmarAutorizacion({ ...base, value: -1 }), /unsigned integer in atomic units/);
+  assert.throws(() => pagador.firmarAutorizacion({ ...base, validBefore: '0' }), /must be greater than validAfter/);
+  assert.throws(() => pagador.firmarAutorizacion({ ...base, to: 'dead' }), /invalid address/);
+  assert.throws(() => pagador.firmarAutorizacion({ ...base, network: 'eip155:56' }), /do not know how to pay/);
 });
 
 // ---------- elegir y armar el pago ----------
@@ -171,9 +171,9 @@ test('tope superado → no se firma (y la llave ni se toca)', () => {
   const req = requisitoDe({ amount: '10001' });
   // privKey nulo a propósito: si el tope se comprobara DESPUÉS de tocar la llave, el error sería
   // otro. Que el mensaje hable del tope demuestra el orden.
-  assert.throws(() => pagador.armarPago({ requisito: req, privKey: null, tope: '10000' }), /supera el tope.*no se firma/);
-  assert.throws(() => pagador.armarPago({ requisito: req, privKey: LLAVE_1 }), /tope .* obligatorio/);
-  assert.throws(() => pagador.armarPago({ requisito: req, privKey: LLAVE_1, tope: 1.5 }), /entero sin signo/);
+  assert.throws(() => pagador.armarPago({ requisito: req, privKey: null, tope: '10000' }), /over the cap.*nothing is signed/);
+  assert.throws(() => pagador.armarPago({ requisito: req, privKey: LLAVE_1 }), /a cap .* is required/);
+  assert.throws(() => pagador.armarPago({ requisito: req, privKey: LLAVE_1, tope: 1.5 }), /unsigned integer in atomic units/);
   // Justo en el tope sí se firma.
   const p = pagador.armarPago({ requisito: req, privKey: LLAVE_1, tope: '10001' });
   assert.equal(p.payload.authorization.value, '10001');
@@ -208,16 +208,16 @@ test('un 402 que anuncia otro contrato, otro dominio o una red desconocida no co
   assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ asset: '0x0000000000000000000000000000000000000001' }))), /no es el USDC/);
   // El dominio del token que dicta el cobrador no se acepta: sale de nuestra tabla.
   assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ extra: { name: 'USD Coin', version: '2' } }))), /dominio del token/);
-  assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ network: 'eip155:56' }))), /red que no sé pagar/);
+  assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ network: 'eip155:56' }))), /a network I do not know how to pay on/);
   assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ scheme: 'upto' }))), /scheme upto/);
   assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ payTo: 'caro@casa' }))), /payTo/);
-  assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ amount: 10000 }))), /cadena de unidades/);
+  assert.throws(() => pagador.elegirRequisito(pr(requisitoDe({ amount: 10000 }))), /string of atomic units/);
   assert.throws(() => pagador.elegirRequisito({ x402Version: 1, accepts: [requisitoDe()] }), /x402Version/);
   // El token de la casa (nyx5:1) se salta sin fallar, y se toma la red EVM que sigue.
   const mixto = { x402Version: 2, accepts: [x402.requisitos({ url: 'u', amount: 25, payTo: 'a@b' }).accepts[0], requisitoDe()] };
   assert.equal(pagador.elegirRequisito(mixto).network, RED);
   // Y si sólo ofrece el token de la casa, se dice: no hay nada que un pagador EVM pueda pagar.
-  assert.throws(() => pagador.elegirRequisito({ x402Version: 2, accepts: mixto.accepts.slice(0, 1) }), /nyx5:1: red que no sé pagar/);
+  assert.throws(() => pagador.elegirRequisito({ x402Version: 2, accepts: mixto.accepts.slice(0, 1) }), /nyx5:1: a network I do not know how to pay on/);
   // Acotar redes: la ofrecida no está en la lista.
   assert.throws(() => pagador.elegirRequisito(pr(requisitoDe()), { redes: ['eip155:8453'] }), /fuera de las redes permitidas/);
 });
@@ -360,10 +360,10 @@ test('pagar: si el precio supera el tope, se hace UNA petición y ninguna con fi
   const url = `http://127.0.0.1:${P}/recurso`;
   const vistas = [];
   const espia = async (u, o) => { vistas.push(o?.headers || {}); return fetch(u, o); };
-  await assert.rejects(pagador.pagar({ url, privKey: LLAVE_1, tope: '9999', fetch: espia }), /supera el tope/);
+  await assert.rejects(pagador.pagar({ url, privKey: LLAVE_1, tope: '9999', fetch: espia }), /over the cap/);
   assert.equal(vistas.length, 1);
   assert.ok(!('PAYMENT-SIGNATURE' in vistas[0]));
-  await assert.rejects(pagador.pagar({ url, privKey: LLAVE_1 }), /tope .* obligatorio/);
+  await assert.rejects(pagador.pagar({ url, privKey: LLAVE_1 }), /a cap .* is required/);
   // Redes acotadas y la ofrecida no está: tampoco se firma.
   await assert.rejects(pagador.pagar({ url, privKey: LLAVE_1, tope: '10000', redes: ['eip155:8453'] }), /fuera de las redes permitidas/);
 });
@@ -384,7 +384,7 @@ test('pagar: si la casa rechaza el pago firmado, se dice el motivo y no se devue
     n++;
     return new Response(JSON.stringify({ error: 'no' }), { status: 402, headers: { 'PAYMENT-REQUIRED': b64({ ...pr, error: n === 1 ? 'PAYMENT-SIGNATURE header is required' : 'settlement failed: sin fondos' }) } });
   };
-  await assert.rejects(pagador.pagar({ url: 'http://x/y', privKey: LLAVE_1, tope: '10000', fetch: terco }), /rechazó el pago: settlement failed: sin fondos/);
+  await assert.rejects(pagador.pagar({ url: 'http://x/y', privKey: LLAVE_1, tope: '10000', fetch: terco }), /rejected the payment: settlement failed: sin fondos/);
   assert.equal(n, 2);
 });
 
@@ -432,9 +432,9 @@ test('ATAQUE · una llave malformada no se repite en el error, y la llave = n se
 test('ATAQUE · una red llamada como una propiedad del prototipo se rechaza con motivo, no con un TypeError', () => {
   // `TOKEN_USD['constructor']` es truthy (Object): el pagador seguía hasta reventar en `.toLowerCase`.
   for (const net of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
-    assert.throws(() => pagador.elegirRequisito({ x402Version: 2, accepts: [requisitoDe({ network: net })] }), /red que no sé pagar/, net);
-    assert.throws(() => pagador.dominioDe(net), /no sé pagar/, net);
-    assert.throws(() => pagador.armarPago({ requisito: requisitoDe({ network: net }), privKey: LLAVE_1, tope: '10000' }), /no sé pagar/, net);
+    assert.throws(() => pagador.elegirRequisito({ x402Version: 2, accepts: [requisitoDe({ network: net })] }), /a network I do not know how to pay on/, net);
+    assert.throws(() => pagador.dominioDe(net), /do not know how to pay/, net);
+    assert.throws(() => pagador.armarPago({ requisito: requisitoDe({ network: net }), privKey: LLAVE_1, tope: '10000' }), /do not know how to pay/, net);
   }
 });
 
@@ -450,7 +450,7 @@ test('ATAQUE · el payTo cambia en la segunda respuesta: se firmó UNA vez para 
   };
   const antes = [];
   const e = await pagador.pagar({ url: 'http://x/y', privKey: LLAVE_1, tope: '10000', fetch: f, alFirmar: (x) => antes.push(x) }).then(() => null, (err) => err);
-  assert.match(e.message, /rechazó el pago: wrong payee/);
+  assert.match(e.message, /rejected the payment: wrong payee/);
   assert.equal(n, 2, 'dos peticiones y ninguna más');
   assert.equal(firmas.length, 1, 'una sola firma');
   assert.equal(firmas[0].payload.authorization.to, COBRA, 'firmada para el payTo del PRIMER 402');
@@ -468,7 +468,7 @@ test('ATAQUE · el payTo cambia en la segunda respuesta: se firmó UNA vez para 
   assert.match(e2.message, /fetch failed/); assert.equal(e2.firmado, true); assert.match(e2.nonce, /^0x[0-9a-f]{64}$/);
   // SILENCIO: un error ANTES de firmar no lleva `firmado` (no hay cheque afuera).
   const e3 = await pagador.pagar({ url: 'http://x/y', privKey: LLAVE_1, tope: '1', fetch: f }).then(() => null, (err) => err);
-  assert.match(e3.message, /supera el tope/); assert.equal(e3.firmado, undefined);
+  assert.match(e3.message, /over the cap/); assert.equal(e3.firmado, undefined);
   // Y la respuesta buena lleva los mismos campos (misma definición, no dos).
   const bueno = async (u, o) => o?.headers?.['PAYMENT-SIGNATURE'] ? new Response('{"ok":1}', { status: 200 }) : new Response('{}', { status: 402, headers: { 'PAYMENT-REQUIRED': b64(pr1) } });
   const r = await pagador.pagar({ url: 'http://x/y', privKey: LLAVE_1, tope: '10000', fetch: bueno });

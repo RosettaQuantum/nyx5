@@ -49,12 +49,12 @@ const concat = (...partes) => {
 };
 const uint256 = (n) => deHex(BigInt(n).toString(16).padStart(64, '0'));
 const direccion32 = (a) => {
-  if (!DIRECCION.test(String(a))) throw new Error(`x402 pagador: dirección inválida "${String(a).slice(0, 20)}"`);
+  if (!DIRECCION.test(String(a))) throw new Error(`x402 payer: invalid address "${String(a).slice(0, 20)}"`);
   return deHex(String(a).slice(2).padStart(64, '0'));
 };
 const entero = (v, nombre) => {
   const s = typeof v === 'bigint' ? v.toString() : String(v);
-  if (!ENTERO.test(s)) throw new Error(`x402 pagador: ${nombre} debe ser un entero sin signo en unidades atómicas`);
+  if (!ENTERO.test(s)) throw new Error(`x402 payer: ${nombre} must be an unsigned integer in atomic units`);
   return s;
 };
 
@@ -65,7 +65,7 @@ const tokenDe = (network) => (typeof network === 'string' && Object.hasOwn(TOKEN
 // El dominio EIP-712 del contrato de USDC en una red. Sale de la tabla leída de los contratos.
 export function dominioDe(network) {
   const t = tokenDe(network);
-  if (!t) throw new Error(`x402 pagador: no sé pagar en ${network}; conozco: ${Object.keys(TOKEN_USD).join(', ')}`);
+  if (!t) throw new Error(`x402 payer: I do not know how to pay on ${network}; I know: ${Object.keys(TOKEN_USD).join(', ')}`);
   const m = /^eip155:(\d+)$/.exec(network);
   if (!m) throw new Error(`x402 pagador: ${network} no es una red EVM`);
   return { name: t.name, version: t.version, chainId: BigInt(m[1]), verifyingContract: t.asset };
@@ -106,7 +106,7 @@ export function digestAutorizacion({ network, dominio, ...auth }) {
 export function firmarAutorizacion({ network, from, to, value, validAfter, validBefore, nonce, privKey }) {
   if (!privKey) throw new Error('x402 pagador: falta privKey');
   const propia = direccionDe(privKey);
-  if (String(from).toLowerCase() !== propia.toLowerCase()) throw new Error(`x402 pagador: from (${from}) no es la dirección de la llave (${propia})`);
+  if (String(from).toLowerCase() !== propia.toLowerCase()) throw new Error(`x402 payer: from (${from}) is not the address of the key (${propia})`);
   const authorization = {
     from: propia, to: String(to),
     value: entero(value, 'value'),
@@ -114,7 +114,7 @@ export function firmarAutorizacion({ network, from, to, value, validAfter, valid
     validBefore: entero(validBefore, 'validBefore'),
     nonce: String(nonce).toLowerCase(),
   };
-  if (BigInt(authorization.validBefore) <= BigInt(authorization.validAfter)) throw new Error('x402 pagador: validBefore debe ser mayor que validAfter');
+  if (BigInt(authorization.validBefore) <= BigInt(authorization.validAfter)) throw new Error('x402 payer: validBefore must be greater than validAfter');
   const digest = digestAutorizacion({ network, ...authorization });
   const { firmaHex } = firmar(digest, privKey);
   return { authorization, signature: firmaHex, digest: '0x' + aHex(digest) };
@@ -139,26 +139,26 @@ export function elegirRequisito(pr, { redes } = {}) {
   for (const a of pr.accepts) {
     if (a?.scheme !== 'exact') { motivos.push(`${a?.network}: scheme ${a?.scheme}`); continue; }
     const t = tokenDe(a.network);
-    if (!t) { motivos.push(`${a.network}: red que no sé pagar`); continue; }
+    if (!t) { motivos.push(`${a.network}: a network I do not know how to pay on`); continue; }
     if (permitidas && !permitidas.has(a.network)) { motivos.push(`${a.network}: fuera de las redes permitidas`); continue; }
     if (String(a.asset).toLowerCase() !== t.asset.toLowerCase()) { motivos.push(`${a.network}: asset ${a.asset} no es el USDC de esa red`); continue; }
     const nombre = a.extra?.name, version = a.extra?.version;
     if ((nombre != null && nombre !== t.name) || (version != null && String(version) !== t.version)) { motivos.push(`${a.network}: dominio del token ${nombre}/${version} no es ${t.name}/${t.version}`); continue; }
-    if (!DIRECCION.test(String(a.payTo))) { motivos.push(`${a.network}: payTo no es una dirección EVM`); continue; }
-    if (typeof a.amount !== 'string' || !ENTERO.test(a.amount)) { motivos.push(`${a.network}: amount no es una cadena de unidades atómicas`); continue; }
+    if (!DIRECCION.test(String(a.payTo))) { motivos.push(`${a.network}: payTo is not an EVM address`); continue; }
+    if (typeof a.amount !== 'string' || !ENTERO.test(a.amount)) { motivos.push(`${a.network}: amount is not a string of atomic units`); continue; }
     return a;
   }
-  throw new Error(`x402 pagador: ninguna forma de pago sirve: ${motivos.join('; ') || 'accepts vacío'}`);
+  throw new Error(`x402 pagador: ninguna forma de pago sirve: ${motivos.join('; ') || 'accepts is empty'}`);
 }
 
 // ---- armar el PAYMENT-SIGNATURE ----
 // `tope` es obligatorio: la decisión de cuánto se está dispuesto a pagar es del agente, no del 402.
 export function armarPago({ requisito, privKey, tope, ahora = Math.floor(Date.now() / 1000), nonce }) {
-  if (tope == null) throw new Error('x402 pagador: tope (unidades atómicas) es obligatorio');
+  if (tope == null) throw new Error('x402 payer: a cap (atomic units) is required');
   const limite = BigInt(entero(tope, 'tope'));
   const monto = BigInt(entero(requisito?.amount, 'amount'));
-  if (monto > limite) throw new Error(`x402 pagador: el precio (${monto}) supera el tope (${limite}); no se firma`);
-  if (!tokenDe(requisito.network)) throw new Error(`x402 pagador: no sé pagar en ${requisito.network}`);
+  if (monto > limite) throw new Error(`x402 payer: the price (${monto}) is over the cap (${limite}); nothing is signed`);
+  if (!tokenDe(requisito.network)) throw new Error(`x402 payer: I do not know how to pay on ${requisito.network}`);
   // La vigencia que pide el servidor sólo puede ACORTAR los 5 minutos: un `maxTimeoutSeconds`
   // negativo, no numérico o fraccionario no se obedece (un negativo firmaba un cheque ya vencido).
   const pedida = Number(requisito.maxTimeoutSeconds);
@@ -199,7 +199,7 @@ async function leerCuerpo(r) {
 // mandar la firma: es el sitio para escribir el registro antes del paso, no después.
 export async function pagar({ url, privKey, tope, fetch: fetchImpl = globalThis.fetch, redes, method = 'GET', headers = {}, body, timeoutMs = 30_000, alFirmar = null }) {
   if (!url) throw new Error('x402 pagador: falta url');
-  if (tope == null) throw new Error('x402 pagador: tope (unidades atómicas) es obligatorio');
+  if (tope == null) throw new Error('x402 payer: a cap (atomic units) is required');
   const pedir = (extra = {}) => fetchImpl(url, { method, headers: { ...headers, ...extra }, body, signal: AbortSignal.timeout(timeoutMs) });
 
   const primera = await pedir();
@@ -238,7 +238,7 @@ export async function pagar({ url, privKey, tope, fetch: fetchImpl = globalThis.
       // El cuerpo con `details` manda: la cabecera suele repetir el genérico «Payment required».
       const detalle = cuerpo && typeof cuerpo === 'object' ? [cuerpo.error, cuerpo.details].filter((x) => typeof x === 'string' && x).join(': ') : '';
       if (detalle && (typeof cuerpo.details === 'string' || !motivo)) motivo = detalle;
-      throw new Error(`x402 pagador: el servidor rechazó el pago${motivo ? `: ${motivo}` : ''}`);
+      throw new Error(`x402 payer: the server rejected the payment${motivo ? `: ${motivo}` : ''}`);
     }
     return { pagado: true, status: segunda.status, body: cuerpo, liquidacion, ...entregado };
   } catch (e) {

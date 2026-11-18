@@ -93,12 +93,12 @@ export class Libro {
   // Lecturas que ven las escrituras pendientes de la propia transacción:
   async _state() { return this.tx ? (this.tx.state ?? this.tx.base) : await this.store.libroState(); }
   async getContract(id) { return this.tx?.contracts.get(id) ?? await this.store.libroGetContract(id); }
-  putContract(c) { if (!this.tx) throw new LibroError(500, 'putContract fuera de transacción'); this.tx.contracts.set(c.id, c); }
+  putContract(c) { if (!this.tx) throw new LibroError(500, 'putContract outside a transaction'); this.tx.contracts.set(c.id, c); }
   async getMandate(id) { return this.tx?.mandates.get(id) ?? await this.store.libroGetMandate(id); }
-  putMandate(m) { if (!this.tx) throw new LibroError(500, 'putMandate fuera de transacción'); this.tx.mandates.set(m.id, m); }
+  putMandate(m) { if (!this.tx) throw new LibroError(500, 'putMandate outside a transaction'); this.tx.mandates.set(m.id, m); }
   // Sello de notaría (NX-601): no mueve dinero ni consume número de asiento. Su candado contra el
   // doble sello es el índice único (sha256, by) del almacén, que hace fallar cerrado el commit.
-  putSello(s) { if (!this.tx) throw new LibroError(500, 'putSello fuera de transacción'); this.tx.sellos.push(s); }
+  putSello(s) { if (!this.tx) throw new LibroError(500, 'putSello outside a transaction'); this.tx.sellos.push(s); }
 
   // ---------- consultas ----------
   get ops() { return Object.keys(CONTRATOS.ops); }
@@ -208,7 +208,7 @@ export class Libro {
   async post(concept, lines, meta = {}, refs = {}) {
     const total = lines.reduce((s, l) => s + l.delta, 0);
     if (total !== 0) throw new LibroError(500, `asiento descuadrado (${total})`);
-    for (const l of lines) if (!Number.isInteger(l.delta)) throw new LibroError(400, 'los montos son enteros (tokens)');
+    for (const l of lines) if (!Number.isInteger(l.delta)) throw new LibroError(400, 'amounts are integers (tokens)');
     const state = await this._state();
     const next = { ...state.balances };
     for (const l of lines) {
@@ -268,37 +268,37 @@ export class Libro {
     if (!CONTRATOS[contract]?.quoteable) throw new LibroError(400, `contrato no cotizable: ${contract}`);
     // `service` (NX-301): el id de un servicio publicado en la ficha del vendedor. Va firmado en la
     // cotización y verifyQuote lo cruza con la ficha al aceptar: precio y contrato tienen que ser los publicados.
-    if (service != null && (typeof service !== 'string' || !/^[a-z0-9-]{1,40}$/.test(service))) throw new LibroError(400, 'service debe ser el id de un servicio de la ficha (letras minúsculas, dígitos y guiones)');
+    if (service != null && (typeof service !== 'string' || !/^[a-z0-9-]{1,40}$/.test(service))) throw new LibroError(400, 'service must be the id of a service on the profile (lowercase letters, digits and dashes)');
     if (arbiter) parseAddress(arbiter);
     // Comisión de referido: el vendedor firma en su cotización que le paga `share` (en basis points)
     // a quien trajo el trato. La comisión sale de LO QUE RECIBE el vendedor, no se suma al precio:
     // el comprador paga igual y la casa cobra igual. verifyQuote valida los límites al aceptar.
     if (referrer != null) {
       parseAddress(referrer.address);
-      if (!Number.isInteger(referrer.share) || referrer.share <= 0) throw new LibroError(400, 'referrer.share debe ser un entero de basis points > 0');
+      if (!Number.isInteger(referrer.share) || referrer.share <= 0) throw new LibroError(400, 'referrer.share must be an integer of basis points > 0');
     }
     return signObject({ tipo: 'cotizacion', id: uuid(), house, seller, buyer, contract, price, currency: 'tok', concept, terms, arbiter, referrer: referrer || undefined, service: service || undefined, issued: iso(), expires: expires || null }, sellerKeys);
   }
   async verifyQuote(q, buyer) {
-    if (q?.tipo !== 'cotizacion' || !q.id || !q.seller || !q.signature) throw new LibroError(400, 'cotización malformada');
+    if (q?.tipo !== 'cotizacion' || !q.id || !q.seller || !q.signature) throw new LibroError(400, 'malformed quote');
     // Solo tipos cotizables: una cotización firmada a mano con un kind inexistente (o no cotizable)
     // se rechaza limpio aquí, no explota en onAccept.
     if (!CONTRATOS[q.contract]?.quoteable) throw new LibroError(400, `contrato no cotizable: ${q.contract}`);
-    if (q.house !== this.domain) throw new LibroError(400, `la cotización es para la casa ${q.house}, no ${this.domain}`);
-    if (q.buyer !== buyer) throw new LibroError(403, 'la cotización no está dirigida a quien la acepta');
-    if (q.expires && Date.parse(q.expires) < Date.now()) throw new LibroError(410, 'cotización vencida');
-    if (q.arbiter) { try { parseAddress(q.arbiter); } catch { throw new LibroError(400, 'árbitro inválido en la cotización'); } }
+    if (q.house !== this.domain) throw new LibroError(400, `the quote is for house ${q.house}, not ${this.domain}`);
+    if (q.buyer !== buyer) throw new LibroError(403, 'the quote is not addressed to whoever is accepting it');
+    if (q.expires && Date.parse(q.expires) < Date.now()) throw new LibroError(410, 'the quote expired');
+    if (q.arbiter) { try { parseAddress(q.arbiter); } catch { throw new LibroError(400, 'invalid arbiter in the quote'); } }
     if (q.referrer != null) {
-      try { parseAddress(q.referrer.address); } catch { throw new LibroError(400, 'referidor inválido en la cotización'); }
-      if (!Number.isInteger(q.referrer.share) || q.referrer.share <= 0) throw new LibroError(400, 'referrer.share debe ser un entero de basis points > 0');
+      try { parseAddress(q.referrer.address); } catch { throw new LibroError(400, 'invalid referrer in the quote'); }
+      if (!Number.isInteger(q.referrer.share) || q.referrer.share <= 0) throw new LibroError(400, 'referrer.share must be an integer of basis points > 0');
       // El fee de la casa y la comisión salen ambos del monto: juntos no pueden dejar al vendedor en negativo.
-      if (this.feeBps + q.referrer.share > 10_000) throw new LibroError(400, `fee (${this.feeBps} bps) + comisión (${q.referrer.share} bps) supera el 100% del precio`);
-      if (q.referrer.address === q.seller) throw new LibroError(400, 'el vendedor no puede ser su propio referidor');
+      if (this.feeBps + q.referrer.share > 10_000) throw new LibroError(400, `fee (${this.feeBps} bps) + referral (${q.referrer.share} bps) is more than 100% of the price`);
+      if (q.referrer.address === q.seller) throw new LibroError(400, 'the seller cannot be their own referrer');
     }
     this._amount(q.price);
     let card;
     try { card = await this.resolver.agentCardForKid(q.seller, q.signature.kid); } catch (e) { throw new LibroError(e.permanent ? 403 : 421, `no se pudo verificar al vendedor: ${e.message}`); }
-    if (!Resolver.acceptedKids(card).includes(q.signature.kid) || !verifyObject(q, q.signature.kid)) throw new LibroError(403, 'firma de la cotización inválida');
+    if (!Resolver.acceptedKids(card).includes(q.signature.kid) || !verifyObject(q, q.signature.kid)) throw new LibroError(403, 'invalid quote signature');
     // Una dirección de sólo mensajes (la del Claude de un teléfono, cuya llave guarda la casa) no
     // vende: aceptarle una cotización le movería saldo, que es justo lo que su dueño no autorizó.
     if (card.delegation?.scope?.messages_only) throw new LibroError(403, 'the seller is a messages-only address: it cannot sell');
@@ -312,7 +312,7 @@ export class Libro {
       if (!s) throw new LibroError(400, `service "${q.service}" is not published in the profile of ${q.seller}`);
       if (s.price.tokens !== q.price || s.contract !== q.contract) throw new LibroError(400, `service ${s.id} is published at ${s.price.tokens} tok as ${s.contract}; the quote says ${q.price} as ${q.contract}`);
     }
-    if (await this.store.libroFindContractByQuote(q.id)) throw new LibroError(409, 'cotización ya aceptada');
+    if (await this.store.libroFindContractByQuote(q.id)) throw new LibroError(409, 'the quote was already accepted');
     return card;
   }
 

@@ -53,8 +53,8 @@ before(async () => {
 after(async () => { await casa.stop(); await new Promise((r) => mundo.close(r)); });
 
 test('una tarea sin prueba de aceptación no se puede publicar', () => {
-  assert.throws(() => normalizarTarea({ id: 'x', concept: 'algo', price: 10 }), /sin prueba no se paga/);
-  assert.throws(() => normalizarTarea({ id: 'x', concept: 'algo', price: 0, verify: { type: 'http_status' } }), /precio entero positivo/);
+  assert.throws(() => normalizarTarea({ id: 'x', concept: 'algo', price: 10 }), /no proof, no payment/);
+  assert.throws(() => normalizarTarea({ id: 'x', concept: 'algo', price: 0, verify: { type: 'http_status' } }), /positive integer price/);
   assert.throws(() => normalizarTarea({ concept: 'algo' }), /necesita id y concept/);
 });
 
