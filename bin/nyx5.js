@@ -20,7 +20,9 @@
 //   --- encargos: el trabajo interno de la casa, sin dinero ---
 //   nyx5 tablero  [--agent ./keys/mio.json] [--state open,taken] [--json]   (qué pedí, qué me pidieron, qué está atascado)
 //   nyx5 encargar --concept "revisar el candado" [--to quien@casa] [--parent <id>] [--detail "..."]
-//   nyx5 encargo  --op tomar|entregar|cerrar|devolver|cancelar --id <id> [--note "..."]
+//   nyx5 encargo  --op tomar|entregar|cerrar|devolver|rendirse|rechazar|cancelar --id <id> [--note "..."]
+//   nyx5 senal    --id <id|contrato> --kind input-required|auth-required|resumed|progress [--note "por que"]
+//   nyx5 trabajo  [--state working,input-required] [--json]   (TODO: contratos Y encargos juntos)
 //   nyx5 estafeta --domain alfa.local --port 4001 --data ./data/alfa --admin-token secreto [--registration admin|invite|open] [--welcome 100] [--fee 0.10]
 //   nyx5 keygen   --address nicolas@alfa.local --estafeta http://127.0.0.1:4001 --out ./keys/nicolas.json
 //   nyx5 register --agent ./keys/nicolas.json --admin-token secreto [--policy open|allowlist|pow|stamp] [--allow a@b,c@d] [--pow-bits 16] [--webhook URL] [--mcp URL] [--a2a URL]
@@ -77,6 +79,7 @@ const COMANDOS = [...fs.readFileSync(new URL(import.meta.url), 'utf8').matchAll(
 // node:internal). Lo reportó un agente que llegó de cero el 5-nov-2026 probando `wait --timeout`:
 // un error así, en el segundo comando de alguien que no nos conoce, se lee como "esto está roto".
 const OPCIONES = {
+  kind: { type: 'string' },
   parent: { type: 'string' }, state: { type: 'string' }, detail: { type: 'string' },
   domain: { type: 'string' }, port: { type: 'string' }, data: { type: 'string' }, 'admin-token': { type: 'string' }, 'public-url': { type: 'string' },
   'require-relay': { type: 'boolean' }, hosts: { type: 'string' }, registration: { type: 'string' }, welcome: { type: 'string' }, fee: { type: 'string' },
@@ -448,6 +451,38 @@ try {
       if (t.atascados) console.log(`\n! = pasado el tope de tiempo de su estado (${t.atascados})`);
       break;
     }
+    // La vista unificada (fase 3). Como el tablero, la CALCULA la casa: dos superficies que la
+    // calculen por su cuenta terminan mostrando dos tableros distintos.
+    case 'trabajo': {
+      const a = await loadAgent();
+      const t = await a.trabajo(o.house || a.domain, { state: o.state });
+      if (o.json) { print(t); break; }
+      console.log(`${t.address} · ${t.abiertos} abierto(s) de ${t.total} · ${t.te_necesitan} te necesitan · ${t.bloqueados} con senal · ${t.atascados} atascados`);
+      if (!t.filas.length) { console.log('  (no hay trabajo)'); break; }
+      for (const f of t.filas) {
+        const marca = !f.abierto ? '  ' : (f.senal || f.atascado) ? ' !' : '  ';
+        const quien = (f.quien || '(sin dueno)').split('@')[0];
+        const extra = f.senal ? `  <- ${f.senal.kind}${f.senal.reason ? `: ${f.senal.reason}` : ''}`
+          : f.atascado ? `  <- ${f.atascado.horas} h: ${f.atascado.razon}` : '';
+        const plata = f.monto != null ? ` ${f.monto} tok` : '';
+        console.log(`${marca} ${f.tipo.padEnd(8)} ${f.state.padEnd(15)} ${quien.padEnd(16)} ${f.titulo.slice(0, 44).padEnd(44)}${plata}${extra}`);
+        console.log(`     ${f.id}${f.nativo !== f.state ? `  (${f.nativo})` : ''}`);
+      }
+      break;
+    }
+    case 'senal': {
+      const a = await loadAgent();
+      const casa = o.house || a.domain;
+      // Un id de encargo y un id de contrato se piden igual, asi que se intenta el encargo y, si
+      // no existe, el contrato: el remitente no tiene por que saber en que tabla vive su trabajo.
+      const id = need('id'); const kind = need('kind');
+      const t = await a.trabajo(casa).catch(() => ({ filas: [] }));
+      const fila = (t.filas || []).find((f) => f.id === id);
+      print(fila?.tipo === 'contrato'
+        ? await a.senalarContrato(casa, id, kind, o.note || null)
+        : await a.senalarEncargo(casa, id, kind, o.note || null));
+      break;
+    }
     case 'encargar': {
       const a = await loadAgent();
       print(await a.encargar(o.house || a.domain, { concept: need('concept'), detail: o.detail, assignee: o.to, parent: o.parent }));
@@ -654,7 +689,7 @@ try {
       // shell. Lo midió un agente que llegó de cero el 5-nov-2026: probó `wait`, recibió la ayuda
       // completa, y tuvo que hablarle JSON-RPC al subcomando `mcp` para averiguar que `wait` sólo
       // existe por MCP. Ahora se dice, por stderr, y se sugiere lo más parecido.
-      const ayuda = fs.readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 37).map((l) => l.replace(/^\/\/ ?/, '')).join('\n');
+      const ayuda = fs.readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 39).map((l) => l.replace(/^\/\/ ?/, '')).join('\n');
       if (!cmd) { console.log(ayuda); process.exit(0); }
       console.error(`error: "${cmd}" is not a nyx5 command.`);
       const cerca = COMANDOS.filter((c) => c.startsWith(cmd.slice(0, 3)) || cmd.startsWith(c.slice(0, 3)));

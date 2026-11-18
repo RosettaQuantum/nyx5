@@ -478,6 +478,12 @@ export class Agent {
     return this.encargoOp(house, { op: 'crear', concept, detail, assignee, parent, verify });
   }
   encargoPaso(house, paso, encargo, extra = {}) { return this.encargoOp(house, { op: paso, encargo, ...extra }); }
+  // La senal de un encargo (fase 2): dice que lo tiene detenido, sin moverlo.
+  senalarEncargo(house, encargo, kind, reason = null) { return this.encargoOp(house, { op: 'signal', encargo, kind, reason }); }
+  // La senal de un CONTRATO va al Libro, porque el contrato vive ahi.
+  senalarContrato(house, contract, kind, reason = null) { return this.libroOp(house, { op: 'signal', contract, kind, reason }); }
+  // La vista unificada: todo el trabajo, hable de dinero o no.
+  async trabajo(house, { state } = {}) { return this._callAt(house, 'GET', `/trabajo${state ? `?state=${encodeURIComponent(state)}` : ''}`); }
   // El tablero, leído de la casa: lo que pedí, lo que me pidieron y los árboles que empecé.
   async tablero(house, { state } = {}) { return this._callAt(house, 'GET', `/encargos${state ? `?state=${encodeURIComponent(state)}` : ''}`); }
 

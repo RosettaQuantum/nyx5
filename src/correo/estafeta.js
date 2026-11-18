@@ -29,7 +29,8 @@ import { contratoPublico, ACP } from '../libro/contratos.js';
 import { estadoDeCuenta, csvDe, nombreCsv } from '../libro/estado.js';
 import { selloPublico } from '../libro/notaria.js';
 import { Tareas } from '../libro/tareas.js';
-import { MEDIA_ENCARGO, PASOS, aplicarPaso, crearEncargo, sinPlata, tablero, visiblePara } from '../libro/encargos.js';
+import { MEDIA_ENCARGO, PASOS, aplicarPaso, crearEncargo, senalarEncargo, sinPlata, tablero, visiblePara } from '../libro/encargos.js';
+import { vista } from '../libro/vista.js';
 import { datosInforme, datosEmbudo, informeHtml } from '../libro/informe.js';
 import { APP_HTML } from '../plataformas/app-html.js';
 import { SPEC_HTML, LLMS_TXT } from '../plataformas/spec-html.js';
@@ -1582,7 +1583,18 @@ export class Estafeta {
         await this._evento('encargo_creado', env.from, { encargo: e.id, assignee: e.assignee, parent: e.parent_id, depth: e.depth });
         return { ok: true, code: 201, result: { encargo: e } };
       }
-      if (!PASOS[op]) return { ok: false, code: 400, reason: `unknown op ${op}; the steps are: ${Object.keys(PASOS).join(', ')}` };
+      // La senal no es un paso: no mueve el estado (salvo auth-required, que en A2A ES un estado)
+      // y no toca dinero. Va antes de PASOS porque no esta en esa tabla a proposito.
+      if (op === 'senalar' || op === 'signal') {
+        if (!b.encargo) return { ok: false, code: 400, reason: 'signal needs { encargo: "<id>" }' };
+        const actual = await this.store.encargoGet(String(b.encargo));
+        if (!actual) return { ok: false, code: 404, reason: `no encargo with id ${b.encargo}` };
+        const nuevo = senalarEncargo(actual, { kind: b.kind, reason: b.reason || null, por: env.from });
+        if (!await this.store.encargoPaso(nuevo, actual.rev)) return { ok: false, code: 409, reason: `${b.encargo} moved while you were deciding; read it again` };
+        await this._evento('encargo_senal', env.from, { encargo: nuevo.id, kind: b.kind, state: nuevo.state });
+        return { ok: true, code: 200, result: { encargo: nuevo } };
+      }
+      if (!PASOS[op]) return { ok: false, code: 400, reason: `unknown op ${op}; the steps are: ${Object.keys(PASOS).join(', ')}, signal` };
       if (!b.encargo) return { ok: false, code: 400, reason: `${op} needs { encargo: "<id>" }` };
       const actual = await this.store.encargoGet(String(b.encargo));
       if (!actual) return { ok: false, code: 404, reason: `no encargo with id ${b.encargo}` };
@@ -2410,6 +2422,23 @@ export class Estafeta {
       // LECTURA FIRMADA, no un endpoint abierto: la misma puerta que el buzón y el Libro. La casa
       // lo sirve para que cualquier PM —una sesión hoy, un asistente mañana— mire el MISMO tablero
       // y no haya una segunda verdad que mantener.
+      // La vista unificada (fase 3): contratos y encargos en una sola lista, bajo el vocabulario
+      // A2A, con la ultima senal abierta encima. Lectura FIRMADA, como todo lo demas, y filtrada
+      // por quien firma: no hay modo «ver todo».
+      //
+      // Se calcula en la CASA y no en la superficie, a proposito: si manana hay dos consolas, las
+      // dos tienen que ver el mismo tablero, y un calculo duplicado es la forma segura de que no.
+      if (rx.method === 'GET' && path === '/trabajo') {
+        const who = await this._authenticate(rx, path);
+        const estado = rx.query.get('state');
+        const [contratos, encargos] = await Promise.all([
+          this.store.libroListContracts(),
+          this.store.encargoList(),
+        ]);
+        const v = vista({ contratos, encargos, para: who.address, ahora: now() });
+        const filas = estado ? v.filas.filter((f) => estado.split(',').includes(f.state)) : v.filas;
+        return send(200, { address: who.address, ...v, filas });
+      }
       if (rx.method === 'GET' && path === '/encargos') {
         const who = await this._authenticate(rx, path);
         // Sin modo «ver todo»: se muestra sólo de lo que el que firma es parte. Quien empezó un

@@ -18,6 +18,7 @@
 // cadena sin fondo.
 
 import { LibroError } from './errores.js';
+import { senalAbierta, senalesDe, validarSenal } from './senal.js';
 
 // Los mensajes de rechazo van en INGLÉS porque salen al usuario: vuelven al remitente como razón
 // del rebote del postmaster. Los comentarios y los nombres del dominio siguen en español, que es
@@ -211,6 +212,41 @@ export function aplicarPaso(encargo, paso, opciones = {}, ahora = Date.now()) {
   return sinPlata(e);
 }
 
+/**
+ * La señal en un encargo: la misma idea y el mismo vocabulario que en un contrato. Entra en el
+ * `log` con `paso: 'signal'` y NO toca `state` ni `rev`... con una excepción deliberada:
+ *
+ * `auth-required` SÍ mueve el estado, porque en A2A ese es un estado y no una nota. Es la única
+ * señal que lo hace, y mueve sólo en una dirección (hacia auth-required); `resumed` lo devuelve a
+ * donde estaba. Para un contrato no se hace: ahí los estados son del dinero y no se tocan.
+ *
+ * Quién puede: las partes (quien pidió, quien hace, el dueño del árbol). Un tercero no.
+ */
+export function senalarEncargo(encargo, { kind, reason = null, por } = {}, ahora = Date.now()) {
+  if (!por) throw new LibroError(403, 'a signal needs to know who is sending it');
+  if (!visiblePara(encargo, por)) throw new LibroError(403, 'only the parties of this encargo can signal');
+  if (FINALES.includes(encargo.state)) throw new LibroError(409, `this encargo is ${encargo.state} and nothing is pending on it`);
+  const v = validarSenal({ kind, reason });
+  const entrada = { at: iso(ahora), by: String(por), paso: 'signal', kind: v.kind, reason: v.reason, state: encargo.state };
+  const e = { ...encargo, rev: Number(encargo.rev || 0) + 1, updated: iso(ahora), log: [...(encargo.log || []), entrada] };
+  if (v.kind === 'auth-required') {
+    // De dónde volver cuando llegue el `resumed`. Se guarda en la entrada del log, no en un campo
+    // nuevo del encargo: el historial ya es el lugar donde vive lo que pasó.
+    entrada.volver_a = encargo.state;
+    e.state = 'auth-required';
+    entrada.state = 'auth-required';
+  } else if (v.kind === 'resumed' && encargo.state === 'auth-required') {
+    const puesta = [...(encargo.log || [])].reverse().find((h) => h.paso === 'signal' && h.kind === 'auth-required');
+    e.state = puesta?.volver_a && !FINALES.includes(puesta.volver_a) ? puesta.volver_a : 'working';
+    entrada.state = e.state;
+  }
+  return sinPlata(e);
+}
+
+/** La señal abierta de un encargo, derivada de su log. */
+export const senalDeEncargo = (e) => senalAbierta(e?.log || []);
+export const senalesDeEncargo = (e) => senalesDe(e?.log || []);
+
 // ----- lo que ve el tablero -----
 
 /**
@@ -283,6 +319,7 @@ export function tablero(encargos = [], ahora = Date.now(), topes = TOPES_H) {
     id: e.id, state: e.state, concept: e.concept, from: e.from, assignee: e.assignee, owner: e.owner || e.from,
     parent_id: e.parent_id || null, updated: e.updated,
     atascado: atascado(e, ahora, topes),
+    senal: senalDeEncargo(e),
     progreso: hijosDe.has(e.id) ? progreso(hijosDe.get(e.id)) : null,
   }));
   // Lo atascado primero y lo más viejo arriba: el tablero se lee de arriba hacia abajo y lo que
