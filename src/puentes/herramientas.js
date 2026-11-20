@@ -29,8 +29,42 @@ export const TOOLS = [
     inputSchema: { type: 'object', required: ['ids'], properties: { ids: { type: 'array', items: { type: 'string' } } } } },
   { name: 'nyx5_resolve', description: 'Check who an address really is before trusting it: returns their card, certified by their domain (verified identity, what they can do, how they charge). Use it before sending anything sensitive or paying them.',
     inputSchema: { type: 'object', required: ['address'], properties: { address: { type: 'string' } } } },
-  { name: 'nyx5_outbox', description: 'What happened to the signed envelopes you sent: delivered, retrying, or bounced with the reason. Use it when you are unsure whether your message arrived; the estafeta records every attempt.',
-    inputSchema: { type: 'object', properties: {} } },
+  { name: 'nyx5_reply', description: 'Answer an envelope you received. Use it for any answer instead of nyx5_send: the signed reply carries the thread and the id of what you answer, so the other side knows which request it belongs to, and the recipient comes from the envelope, so you cannot answer the wrong agent.',
+    inputSchema: { type: 'object', required: ['id', 'body'], properties: {
+      id: { type: 'string', description: 'id of the envelope you are answering (from nyx5_inbox)' },
+      body: { description: 'your answer: text or JSON' },
+      type: { type: 'string', enum: ['message', 'result'], default: 'result' },
+      from: { type: 'string', description: 'who sent it, if you already acknowledged it and it is no longer in your mailbox' },
+      project: { type: 'string' }, summary: { type: 'string', description: 'ONE line in the clear saying what this is about (see nyx5_send)' },
+      encrypt: { type: 'boolean', default: true } } } },
+  { name: 'nyx5_outbox', description: 'What happened to the signed envelopes you sent: delivered, retrying, or bounced with the reason. Use it when you are unsure whether your message arrived; the estafeta records every attempt. Filter it: without filters you get everything you ever sent.',
+    inputSchema: { type: 'object', properties: {
+      to: { type: 'string', description: 'only what you sent to this address' },
+      status: { type: 'string', description: 'delivered | retrying | bounced' },
+      since: { type: 'string', description: 'ISO-8601; only from this moment on' },
+      id: { type: 'string', description: 'one envelope by its id' },
+      limit: { type: 'integer', default: 50, description: 'most recent first' } } } },
+  { name: 'nyx5_encargar', description: 'Ask for work and let the house keep its state. Not a purchase: an encargo never moves money, it records in a signed envelope what was asked of whom. Use it instead of a plain message when you need something done, so neither side has to ask how it is going.',
+    inputSchema: { type: 'object', required: ['concept'], properties: {
+      concept: { type: 'string', description: 'ONE line: what has to be done (max 200 chars)' },
+      detail: { type: 'string', description: 'everything the other side needs to do it without asking you (max 4000 chars)' },
+      assignee: { type: 'string', description: 'address of who should do it; leave it out to let anyone take it' },
+      due: { type: 'string', description: 'ISO-8601 deadline; the board marks it when it passes' },
+      project: { type: 'string', description: 'which project this belongs to' },
+      parent: { type: 'string', description: 'id of the encargo this one hangs from' },
+      house: { type: 'string', description: 'house that keeps it (default: yours)' } } } },
+  { name: 'nyx5_encargo', description: 'Move an encargo along, or say what has it stopped. Use it to answer with a state instead of a message: every step is a signed envelope, so whoever asked can see how it is going without asking you. Steps: tomar, entregar, cerrar, devolver, rechazar, rendirse, cancelar, signal.',
+    inputSchema: { type: 'object', required: ['op', 'id'], properties: {
+      op: { type: 'string', enum: ['tomar', 'entregar', 'cerrar', 'devolver', 'rechazar', 'rendirse', 'cancelar', 'signal'], description: 'tomar: I am on it. entregar: done, needs review. cerrar: accepted. devolver: back to work. rechazar: not good, will not be retried. rendirse: could not be done. cancelar: withdrawn. signal: it is stuck and why, without moving it.' },
+      id: { type: 'string', description: 'id of the encargo' },
+      note: { type: 'string', description: 'one line: what you did, or why not' },
+      kind: { type: 'string', description: 'signal: what kind of thing is blocking it' },
+      reason: { type: 'string', description: 'signal: why' },
+      house: { type: 'string' } } } },
+  { name: 'nyx5_tablero', description: 'Every encargo you asked for or were asked, with its state and what is stuck. The house computes it from the signed steps, so every agent sees the same board. Check it before asking anyone how something is going.',
+    inputSchema: { type: 'object', properties: {
+      state: { type: 'string', description: 'only these states, comma separated (submitted, working, input-required, auth-required, completed, canceled, failed, rejected)' },
+      house: { type: 'string' } } } },
   { name: 'nyx5_directory', description: 'Which agents a house offers and what each one does, every card certified by the domain. Use it when you are looking for a provider inside a house you already know.',
     inputSchema: { type: 'object', properties: { house: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' }, limit: { type: 'integer' } } } },
   { name: 'nyx5_search', description: 'Find an agent that does what you need in any house, ranked by verified reputation (ledger-backed, null when unproven) with tag, language, price and min_score filters. Use it when you know nobody who solves your problem. The index answers signed and you verify the card before trusting: a hint, not an authority.',
@@ -125,11 +159,11 @@ export const TOOLS = [
 // pedir permiso (y el directorio oficial de conectores las exige). Son pistas, no garantías: la casa
 // sigue haciendo cumplir cada límite por su cuenta. Nació de un reporte de Nicholas: conectar desde
 // el teléfono le pidió tres permisos (inbox, send, wait) antes del primer mensaje.
-const SOLO_LECTURA = new Set(['nyx5_inbox', 'nyx5_resolve', 'nyx5_outbox', 'nyx5_directory', 'nyx5_search', 'nyx5_balance', 'nyx5_contract', 'nyx5_historial', 'nyx5_tareas', 'nyx5_wait', 'nyx5_conversation', 'nyx5_notarized', 'nyx5_whoami']);
+const SOLO_LECTURA = new Set(['nyx5_inbox', 'nyx5_resolve', 'nyx5_outbox', 'nyx5_tablero', 'nyx5_directory', 'nyx5_search', 'nyx5_balance', 'nyx5_contract', 'nyx5_historial', 'nyx5_tareas', 'nyx5_wait', 'nyx5_conversation', 'nyx5_notarized', 'nyx5_whoami']);
 // `nyx5_attach` ESCRIBE en la casa (sube un objeto y gasta cupo) y `nyx5_attachment` escribe en el
 // disco de quien corre el puente: ninguna de las dos es de sólo lectura, aunque no mueva dinero.
 const MUEVE_DINERO = new Set(['nyx5_accept', 'nyx5_libro', 'nyx5_tomar', 'nyx5_hire']);
-const TITULOS = { nyx5_attach: 'Attach a file', nyx5_attachment: 'Download an attachment', nyx5_send: 'Send a message', nyx5_inbox: 'Read my mailbox', nyx5_ack: 'Mark messages as handled', nyx5_resolve: 'Check who an address is', nyx5_outbox: 'Delivery status of what I sent', nyx5_directory: 'Agents in a house', nyx5_search: 'Find an agent', nyx5_quote: 'Offer a service', nyx5_accept: 'Accept an offer and pay', nyx5_hire: 'Hire a published service', nyx5_libro: 'Ledger operation', nyx5_balance: 'My balance', nyx5_remind: 'Remind myself later', nyx5_contract: 'A deal and its history', nyx5_historial: 'Reputation of an agent', nyx5_tareas: 'Paid tasks available', nyx5_tomar: 'Take a paid task', nyx5_email: 'Email a person', nyx5_wait: 'Wait for a reply', nyx5_conversation: 'Conversation history', nyx5_group: 'Group of agents', nyx5_profile: 'Public profile', nyx5_notarize: 'Seal a document hash', nyx5_notarized: 'Verify a document seal', nyx5_whoami: 'Who am I', nyx5_qa_spec: 'Ask qa@ for an acceptance contract', nyx5_qa_gate: 'Ask qa@ to judge a delivery', nyx5_payment_request: 'Request a payment', nyx5_payment_confirm: 'Confirm a payment' };
+const TITULOS = { nyx5_reply: 'Answer an envelope', nyx5_encargar: 'Ask for work', nyx5_encargo: 'Move work along', nyx5_tablero: 'The board of who owes what', nyx5_attach: 'Attach a file', nyx5_attachment: 'Download an attachment', nyx5_send: 'Send a message', nyx5_inbox: 'Read my mailbox', nyx5_ack: 'Mark messages as handled', nyx5_resolve: 'Check who an address is', nyx5_outbox: 'Delivery status of what I sent', nyx5_directory: 'Agents in a house', nyx5_search: 'Find an agent', nyx5_quote: 'Offer a service', nyx5_accept: 'Accept an offer and pay', nyx5_hire: 'Hire a published service', nyx5_libro: 'Ledger operation', nyx5_balance: 'My balance', nyx5_remind: 'Remind myself later', nyx5_contract: 'A deal and its history', nyx5_historial: 'Reputation of an agent', nyx5_tareas: 'Paid tasks available', nyx5_tomar: 'Take a paid task', nyx5_email: 'Email a person', nyx5_wait: 'Wait for a reply', nyx5_conversation: 'Conversation history', nyx5_group: 'Group of agents', nyx5_profile: 'Public profile', nyx5_notarize: 'Seal a document hash', nyx5_notarized: 'Verify a document seal', nyx5_whoami: 'Who am I', nyx5_qa_spec: 'Ask qa@ for an acceptance contract', nyx5_qa_gate: 'Ask qa@ to judge a delivery', nyx5_payment_request: 'Request a payment', nyx5_payment_confirm: 'Confirm a payment' };
 for (const t of TOOLS) {
   t.title = TITULOS[t.name] || t.name;
   t.annotations = { title: t.title, readOnlyHint: SOLO_LECTURA.has(t.name), destructiveHint: MUEVE_DINERO.has(t.name), idempotentHint: SOLO_LECTURA.has(t.name) || t.name === 'nyx5_ack' || t.name === 'nyx5_notarize', openWorldHint: true };
@@ -140,7 +174,7 @@ for (const t of TOOLS) {
 // que van a fallar sólo le enseñaría al modelo a prometer lo que no puede cumplir.
 // Tampoco el pedido de pago (NX-502): la llave del subagente vive en la bóveda y la casa cifraría en
 // su nombre, o sea que el RUT y la cuenta pasarían por la casa en claro. Va sólo por el puente local.
-export const MENSAJERIA = new Set(['nyx5_send', 'nyx5_inbox', 'nyx5_ack', 'nyx5_resolve', 'nyx5_outbox', 'nyx5_directory', 'nyx5_search', 'nyx5_remind', 'nyx5_historial', 'nyx5_wait', 'nyx5_conversation', 'nyx5_group', 'nyx5_qa_spec', 'nyx5_qa_gate', 'nyx5_whoami']);
+export const MENSAJERIA = new Set(['nyx5_send', 'nyx5_reply', 'nyx5_encargar', 'nyx5_encargo', 'nyx5_tablero', 'nyx5_inbox', 'nyx5_ack', 'nyx5_resolve', 'nyx5_outbox', 'nyx5_directory', 'nyx5_search', 'nyx5_remind', 'nyx5_historial', 'nyx5_wait', 'nyx5_conversation', 'nyx5_group', 'nyx5_qa_spec', 'nyx5_qa_gate', 'nyx5_whoami']);
 
 export const INSTRUCCIONES = `Nyx5 gives an agent three things it has no other way of getting: an address of its own, a mailbox that holds while it is off, and a ledger where an agreement carries weight (payment is held until the proof passes; a false claim forfeits its bond). Use it to reach an agent that may not be available now, to find someone who does X in any house, or to close a deal that must be worth more than a promise. Before trusting a stranger, read their record: it is a query on the ledger, so every point of it cost tokens. Every message is signed and every movement of money leaves a receipt no party can deny. Tag what you send with a project name and filter by it to keep several chats apart.`;
 
@@ -189,7 +223,13 @@ export async function llamar(agent, name, args = {}, { permitidas = null, espera
     }
     case 'nyx5_ack': return text({ acked: await agent.ack(args.ids) });
     case 'nyx5_resolve': { const { _domain, ...card } = await agent.resolver.agentCard(args.address, { onBehalfOf: agent.address }); const last_seen = await agent.presence(args.address); return text({ ...card, ...(last_seen ? { presence: { last_seen } } : {}) }); }
-    case 'nyx5_outbox': return text(await agent.outbox());
+    case 'nyx5_reply': { const r = await agent.responder(args.id, args.body, { from: args.from || null, type: args.type || 'result', encrypt: args.encrypt ?? true, project: args.project, summary: args.summary }); return text({ id: r.id, thread: r.envelope?.thread ?? null, in_reply_to: r.envelope?.in_reply_to ?? null, jobs: r.jobs, encrypted: r.encrypted }); }
+    case 'nyx5_outbox': return text(await agent.outbox({ to: args.to, status: args.status, since: args.since, id: args.id, limit: args.limit ?? 50 }));
+    case 'nyx5_encargar': return text(await agent.encargar(args.house || agent.domain, { concept: args.concept, detail: args.detail, assignee: args.assignee, due: args.due, project: args.project, parent: args.parent }));
+    case 'nyx5_encargo': return text(args.op === 'signal'
+      ? await agent.senalarEncargo(args.house || agent.domain, args.id, args.kind, args.reason ?? null)
+      : await agent.encargoPaso(args.house || agent.domain, args.op, args.id, { note: args.note }));
+    case 'nyx5_tablero': return text(await agent.tablero(args.house || agent.domain, { state: args.state }));
     case 'nyx5_directory': return text(await agent.directory(args.house, args));
     case 'nyx5_search': return text(await agent.search(args.index, args));
     case 'nyx5_quote': {

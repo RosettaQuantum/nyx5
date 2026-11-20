@@ -20,8 +20,8 @@ const GARANTIA = /signed|signature|mailbox|entry|ledger|receipt|held|hold|verif|
 // palabra que ancla el MOMENTO de uso o la capacidad (no el mecanismo)
 const CAPACIDAD = /use it|when you|find|delegate|offer|accept|check it|check|move|even if|do not know|before |take |leave yourself/i;
 
-test('D1 · hay 31 herramientas y ninguna description quedó como la vieja documentación de API', () => {
-  assert.equal(tools.length, 31, `se esperaban 31 herramientas, hay ${tools.length}`);
+test('D1 · hay 35 herramientas y ninguna description quedó como la vieja documentación de API', () => {
+  assert.equal(tools.length, 35, `se esperaban 35 herramientas, hay ${tools.length}`);
   // ninguna debe empezar describiendo el mecanismo ("Envía un sobre...", "Operación genérica...")
   for (const t of tools) {
     assert.ok(!/^(Envía un sobre|Operación genérica del Libro|Lee los sobres pendientes)/.test(t.description),
@@ -158,7 +158,7 @@ test('GRITO · la llamada REAL que mandó un sobre vacío ahora se rechaza, y no
   assert.equal(espia.enviados, 0);
 });
 
-test('ninguna de las 31 herramientas actúa sin lo que su propio esquema exige', async () => {
+test('ninguna de las 35 herramientas actúa sin lo que su propio esquema exige', async () => {
   const { TOOLS, llamar } = await import('../src/puentes/herramientas.js');
   // Un agente que grita si alguien lo toca: la prueba es que no se le llama a NADA.
   const intocable = new Proxy({}, { get: (_, k) => { if (k === 'then') return undefined; return () => { throw new Error(`se llamó a agent.${String(k)} sin los campos obligatorios`); }; } });
