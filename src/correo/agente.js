@@ -13,6 +13,25 @@ import { MEDIA_COBRO, MEDIA_COBRO_CONFIRMACION, cobroValido, confirmacionValida,
 
 const iso = (t = Date.now()) => new Date(t).toISOString();
 
+// El tope de una llamada del CLIENTE a su casa. 10 s era demasiado corto, y no por teoria: medido
+// el 18-nov-2026 contra nyx5.com, 3 de cada 12 conexiones tardaron mas de 3 s en establecerse y dos
+// pasaron de 16 s — se pierde el primer SYN y TCP reintenta con espera creciente —, asi que
+// `nyx5 consola` moria con `fetch failed` cerca de 1 de cada 4 veces con la casa sana, contestando
+// en 0,3 s una vez conectada. Un tope corto convierte una red con perdida en un producto roto.
+// Se lee en CADA llamada, no al cargar el modulo: asi se sube sin reiniciar nada.
+// ALCANCE, a proposito: solo el cliente. NO el arbitro (`verifica.js`, donde el tope es parte del
+// contrato que mueve dinero) ni las llamadas entre casas, que no son el defecto que se midio.
+export const TOPE_RED_MS = 30_000;
+export const topeDeRed = () => {
+  const v = Number(process.env?.NYX5_TIMEOUT_MS);
+  return Number.isFinite(v) && v > 0 ? v : TOPE_RED_MS;
+};
+// Si NO se llego a la casa. Se mira el `name` y el texto porque `fetch` de Node envuelve la causa
+// real: un SYN perdido llega como un escueto `fetch failed`, sin decir a quien no se llego ni que
+// reintentar suele bastar. Quien lo lee merece saber las dos cosas.
+export const esFallaDeRed = (e) => e?.name === 'TimeoutError'
+  || /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket hang up|network/i.test(e?.message || '');
+
 export class Agent {
   constructor({ address, keys, estafeta, resolver, hosts = {}, fetchImpl = globalThis.fetch }) {
     const { local, domain } = parseAddress(address);
@@ -37,7 +56,7 @@ export class Agent {
     const token = b64u(canonical(claims));
     return `Nyx5 ${token}.${signBytes(canonical(claims), keys)}`;
   }
-  async _call(method, path, body, { admin, noAuth, authKeys, timeoutMs = 10_000 } = {}) {
+  async _call(method, path, body, { admin, noAuth, authKeys, timeoutMs = topeDeRed() } = {}) {
     const headers = { 'content-type': 'application/json' };
     if (admin) headers.authorization = `Bearer ${admin}`; else if (!noAuth) headers.authorization = this._auth(method, path.split('?')[0], authKeys);
     const res = await this.fetch(`${this.estafeta}${path}`, {
@@ -68,7 +87,7 @@ export class Agent {
   async directory(house, { capability, accepts, q, limit, offset } = {}) {
     const params = new URLSearchParams(Object.entries({ capability, accepts, q, limit, offset }).filter(([, v]) => v != null));
     const base = !house || house === this.domain ? this.estafeta : (await this.resolver.domainCard(house))._estafeta;
-    const res = await this.fetch(`${base}/agents?${params}`, { signal: AbortSignal.timeout(10_000) });
+    const res = await this.fetch(`${base}/agents?${params}`, { signal: AbortSignal.timeout(topeDeRed()) });
     return res.json();
   }
   // Rotación: el cuerpo lleva las claves nuevas; la autenticación se firma con las viejas (o usa adminToken).
@@ -502,7 +521,7 @@ export class Agent {
   async historial(address = this.address) {
     const { local, domain } = parseAddress(address);
     const base = domain === this.domain ? this.estafeta : (await this.resolver.domainCard(domain))._estafeta;
-    const res = await this.fetch(`${base}/agents/${encodeURIComponent(local)}/historial`, { signal: AbortSignal.timeout(10_000) });
+    const res = await this.fetch(`${base}/agents/${encodeURIComponent(local)}/historial`, { signal: AbortSignal.timeout(topeDeRed()) });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(json.reason || `HTTP ${res.status}`), { status: res.status });
     return json;
@@ -511,7 +530,7 @@ export class Agent {
   // verifica contra la tarjeta del dominio; si la casa sirviera uno que no firmó, se rechaza entero.
   async notarized(sha256, house = this.domain) {
     const dc = await this.resolver.domainCard(house);
-    const res = await this.fetch(`${dc._estafeta}/notaria/${encodeURIComponent(String(sha256).toLowerCase())}`, { signal: AbortSignal.timeout(10_000) });
+    const res = await this.fetch(`${dc._estafeta}/notaria/${encodeURIComponent(String(sha256).toLowerCase())}`, { signal: AbortSignal.timeout(topeDeRed()) });
     if (res.status === 404) return null;
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(json.reason || `HTTP ${res.status}`), { status: res.status });
@@ -524,7 +543,7 @@ export class Agent {
   async _callAt(house, method, path) {
     if (!house || house === this.domain) return this._call(method, path);
     const dc = await this.resolver.domainCard(house);
-    const res = await this.fetch(`${dc._estafeta}${path}`, { method, headers: { authorization: this._auth(method, path.split('?')[0], this.keys, dc._estafeta) }, signal: AbortSignal.timeout(10_000) });
+    const res = await this.fetch(`${dc._estafeta}${path}`, { method, headers: { authorization: this._auth(method, path.split('?')[0], this.keys, dc._estafeta) }, signal: AbortSignal.timeout(topeDeRed()) });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(json.reason || `HTTP ${res.status}`), { status: res.status });
     return json;
@@ -544,7 +563,7 @@ export class Agent {
   async search(index, { q, tag, lang, capability, accepts, house, price_max, min_score, limit, cursor } = {}) {
     const params = new URLSearchParams(Object.entries({ q, tag, lang, capability, accepts, house, price_max, min_score, limit, cursor }).filter(([, v]) => v != null));
     const base = index.startsWith('http') ? index.replace(/\/$/, '') : (await this.resolver.domainCard(index))._estafeta;
-    const res = await this.fetch(`${base}/index/agents?${params}`, { signal: AbortSignal.timeout(10_000) });
+    const res = await this.fetch(`${base}/index/agents?${params}`, { signal: AbortSignal.timeout(topeDeRed()) });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(json.reason || `HTTP ${res.status}`), { status: res.status });
     return json;

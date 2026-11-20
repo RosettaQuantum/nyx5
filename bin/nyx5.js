@@ -61,7 +61,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { Estafeta } from '../src/correo/estafeta.js';
-import { Agent } from '../src/correo/agente.js';
+import { Agent, topeDeRed, esFallaDeRed } from '../src/correo/agente.js';
 import { Resolver } from '../src/correo/resolver.js';
 import { runMcpServer } from '../src/puentes/mcp.js';
 import { recoger, responder } from '../src/puentes/ejecutor.js';
@@ -717,5 +717,13 @@ try {
   }
 } catch (e) {
   console.error('error:', e.message);
+  // Una falla de red no se explica sola. El 18-nov-2026 Nicholas corrio `nyx5 consola` y leyo
+  // `error: fetch failed`, a secas: la casa contestaba en 0,3 s y era su red perdiendo el primer
+  // SYN cada tantas conexiones. Un mensaje que no dice a quien no se llego, ni que reintentar
+  // suele bastar, convierte una red con perdida en "esto esta roto".
+  if (esFallaDeRed(e)) {
+    console.error(`could not reach the house (gave up after ${topeDeRed() / 1000}s). The house may be fine and your network losing packets: try again.`);
+    console.error('If it keeps failing, raise the limit: NYX5_TIMEOUT_MS=60000 nyx5 <command>');
+  }
   process.exit(1);
 }
