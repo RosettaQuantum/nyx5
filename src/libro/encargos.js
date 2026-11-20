@@ -311,13 +311,24 @@ export function visiblePara(e, quien) {
 }
 
 /** El tablero: lo abierto, agrupado, con lo atascado señalado y el progreso de cada padre. */
-export function tablero(encargos = [], ahora = Date.now(), topes = TOPES_H) {
+// `estados` dice QUE SE PINTA, y por defecto es lo abierto. Nacio de un filtro que no podia casar
+// nunca: `/encargos?state=completed` pedia a la bodega solo los completados y despues el tablero los
+// filtraba otra vez a lo ABIERTO, asi que devolvia cero filas SIEMPRE, con el trabajo ahi guardado.
+// Un cero que no puede ser otra cosa no es una medicion. El conteo `abiertos` sigue contando lo
+// abierto: es cuanto trabajo hay vivo, no cuantas filas se pidieron.
+export function tablero(encargos = [], ahora = Date.now(), topes = TOPES_H, { estados = null } = {}) {
   const abiertos = encargos.filter((e) => ABIERTOS.includes(e.state));
+  const mostrados = estados?.length ? encargos.filter((e) => estados.includes(e.state)) : abiertos;
   const hijosDe = new Map();
   for (const e of encargos) if (e.parent_id) hijosDe.set(e.parent_id, [...(hijosDe.get(e.parent_id) || []), e]);
-  const filas = abiertos.map((e) => ({
+  const filas = mostrados.map((e) => ({
     id: e.id, state: e.state, concept: e.concept, from: e.from, assignee: e.assignee, owner: e.owner || e.from,
     parent_id: e.parent_id || null, updated: e.updated,
+    // `due` y `project` se GUARDABAN desde el principio y el tablero no los sacaba, asi que un
+    // plazo era un campo que nadie podia mirar: declarado y sin nada detras. El tablero no marca
+    // todavia lo VENCIDO (`atascado` mide tiempo en el estado, que es otra cosa): da la fecha y
+    // quien lee compara. Marcarlo seria politica de la casa sobre una fecha que puso otro.
+    due: e.due || null, project: e.project || null,
     atascado: atascado(e, ahora, topes),
     senal: senalDeEncargo(e),
     progreso: hijosDe.has(e.id) ? progreso(hijosDe.get(e.id)) : null,

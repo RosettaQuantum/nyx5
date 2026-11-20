@@ -1300,7 +1300,18 @@ export class Estafeta {
     // Sólo mensajes: la dirección que guarda la casa para el Claude de un teléfono no toca el Libro
     // ni paga estampillas. Aunque el puente no le ofrezca esas herramientas, la casa lo niega igual.
     if (scope.messages_only) {
-      if (!['message', 'result', 'receipt'].includes(env.type)) return 'this is a messages-only address: it can send message, result or receipt';
+      // Un ENCARGO no es comercio. `src/libro/encargos.js` no llama al Libro ni una vez y hay una
+      // prueba que lo exige, asi que un encargo no mueve dinero ni por error. Por eso una direccion
+      // delegada SI puede abrir y mover trabajo: es exactamente lo que pidio claude.nico@ el
+      // 18-nov-2026 ("hoy no puede mandar type task"), y sin esto el tablero de estados queda
+      // construido y fuera del alcance de los agentes que lo necesitan.
+      // La excepcion es ESTRECHA a proposito: el tipo `task` sigue prohibido salvo que vaya SOLO a
+      // `encargos@` y declare el media del encargo. Un `task` suelto es el tipo con el que se PIDE
+      // un servicio pagado (el camino pedido -> cotizacion -> aceptar), y ese queda cerrado.
+      const esEncargo = env.type === 'task'
+        && env.to.every((t) => parseAddress(t).local === 'encargos')
+        && env.content?.media === MEDIA_ENCARGO;
+      if (!esEncargo && !['message', 'result', 'receipt'].includes(env.type)) return 'this is a messages-only address: it can send message, result or receipt, or a task to encargos@ (work, which never moves money)';
       if (env.to.some((t) => parseAddress(t).local === 'libro')) return 'this is a messages-only address: it cannot operate the ledger';
       if (env.stamp) return 'this is a messages-only address: it cannot pay stamps';
     }
@@ -1571,7 +1582,11 @@ export class Estafeta {
           if (!padre) return { ok: false, code: 404, reason: `no encargo with id ${b.parent}` };
           if (!visiblePara(padre, env.from)) return { ok: false, code: 403, reason: `${b.parent} is not yours to hang work from` };
         }
-        const e = crearEncargo({ id: env.id, from: env.from, assignee: b.assignee || null, concept: b.concept, detail: b.detail || null, verify: b.verify || null, parent: padre });
+        // `due` y `project` los validaba `crearEncargo` desde el primer dia y NINGUN llamador los
+        // pasaba: dos campos leidos, documentados y a los que no se podia llegar desde afuera. Se
+        // agregan AQUI, a la lista campo por campo, y no copiando el cuerpo: esa lista es lo que
+        // hace que un `price: 500` colado en el sobre se caiga solo en vez de nacer sin precio.
+        const e = crearEncargo({ id: env.id, from: env.from, assignee: b.assignee || null, concept: b.concept, detail: b.detail || null, verify: b.verify || null, parent: padre, due: b.due || null, project: b.project || null });
         // false = ese id ya existía. La respuesta correcta a una REENTREGA es el encargo guardado,
         // no un segundo encargo con el mismo nombre. Pero el id del sobre lo elige QUIEN ENVÍA, así
         // que devolverlo sin más le entrega el contenido de un encargo ajeno a cualquiera que acierte
@@ -2482,8 +2497,11 @@ export class Estafeta {
         // árbol lo ve entero porque es su `owner`, que es justamente la suma padre->hijos que un
         // PM necesita. Un listado de la casa completa sería otro privilegio y otra ruta.
         const estado = rx.query.get('state');
-        const crudos = await this.store.encargoList(estado ? { state: estado.split(',') } : {});
-        return send(200, { address: who.address, ...tablero(crudos.filter((e) => visiblePara(e, who.address)), now()) });
+        const estados = estado ? estado.split(',').map((x) => x.trim()).filter(Boolean) : null;
+        const crudos = await this.store.encargoList(estados ? { state: estados } : {});
+        // Los MISMOS estados que se pidieron a la bodega deciden que se pinta. Pasar uno y no el
+        // otro es como quedo el defecto: pedir los cerrados y pintar solo los abiertos.
+        return send(200, { address: who.address, ...tablero(crudos.filter((e) => visiblePara(e, who.address)), now(), undefined, { estados }) });
       }
       if (rx.method === 'GET' && (m = /^\/mailbox\/([^/]+)$/.exec(path))) {
         const who = await this._authenticate(rx, path);

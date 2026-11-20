@@ -99,7 +99,7 @@ const OPCIONES = {
   media: { type: 'string' }, from: { type: 'string' }, send: { type: 'boolean' },
   // El vigía (`wait`): cuánto dura cada espera larga, si se reengancha solo, desde cuándo
   // y de qué proyecto. Esperar NO cuesta tokens: es una conexión retenida, no un modelo.
-  seconds: { type: 'string' }, follow: { type: 'boolean' }, since: { type: 'string' }, project: { type: 'string' },
+  seconds: { type: 'string' }, follow: { type: 'boolean' }, since: { type: 'string' }, project: { type: 'string' }, due: { type: 'string' },
   hours: { type: 'string' },
 };
 
@@ -500,7 +500,7 @@ try {
     }
     case 'encargar': {
       const a = await loadAgent();
-      print(await a.encargar(o.house || a.domain, { concept: need('concept'), detail: o.detail, assignee: o.to, parent: o.parent }));
+      print(await a.encargar(o.house || a.domain, { concept: need('concept'), detail: o.detail, assignee: o.to, parent: o.parent, due: o.due, project: o.project }));
       break;
     }
     case 'encargo': {

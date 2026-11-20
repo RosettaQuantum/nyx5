@@ -223,15 +223,15 @@ test('un cobro a una dirección cuya llave guarda la casa (custody.keys = house)
 });
 
 // ---------- herramientas MCP ----------
-test('herramientas: nyx5_payment_request y nyx5_payment_confirm existen (29 en total), NO están en el remoto, y el remoto las niega', async () => {
-  assert.equal(TOOLS.length, 31);
+test('herramientas: nyx5_payment_request y nyx5_payment_confirm existen (35 en total), NO están en el remoto, y el remoto las niega', async () => {
+  assert.equal(TOOLS.length, 35);
   const req = TOOLS.find((t) => t.name === 'nyx5_payment_request'), conf = TOOLS.find((t) => t.name === 'nyx5_payment_confirm');
   assert.ok(req && conf);
   assert.equal(req.title, 'Request a payment');
   assert.deepEqual(req.inputSchema.properties.currency.enum, ['CLP', 'USD']);
   assert.deepEqual(req.inputSchema.properties.account_type.enum, ['checking', 'savings', 'vista']);
   assert.ok(!MENSAJERIA.has('nyx5_payment_request') && !MENSAJERIA.has('nyx5_payment_confirm'), 'la llave del remoto la guarda la casa: los datos pasarían por ella en claro');
-  assert.equal(MENSAJERIA.size, 15);
+  assert.equal(MENSAJERIA.size, 19);
   for (const n of ['nyx5_payment_request', 'nyx5_payment_confirm']) {
     const negada = await llamar(nico, n, {}, { permitidas: MENSAJERIA });
     assert.equal(negada.isError, true); assert.match(negada.content[0].text, /messages-only/);

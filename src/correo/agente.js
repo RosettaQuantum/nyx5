@@ -251,11 +251,18 @@ export class Agent {
     return claro;
   }
   // El sobre con adjuntos que está en el buzón (o en la conversación, si ya se confirmó), abierto.
-  async conAdjuntos(id, from = null) {
+  // Un sobre por su id: primero el buzon, y si ya se confirmo, la conversacion con quien lo mando.
+  // Vive aparte porque responder y bajar adjuntos necesitan lo mismo, y duplicar la busqueda es
+  // duplicar el dia en que una de las dos deja de mirar la conversacion.
+  async sobrePorId(id, from = null) {
     let m = (await this.inbox({ limit: 200 })).find((x) => x.envelope?.id === id);
     if (!m && from) m = (await this.conversation(from, { limit: 200 })).find((x) => x.envelope?.id === id);
-    if (!m) return null;
-    const o = await this.open(m.envelope);
+    return m?.envelope || null;
+  }
+  async conAdjuntos(id, from = null) {
+    const env = await this.sobrePorId(id, from);
+    if (!env) return null;
+    const o = await this.open(env);
     if (!o.attachments?.length) throw new Error(`envelope ${id} carries no attachments`);
     return o;
   }
@@ -278,6 +285,17 @@ export class Agent {
       if (m) return (m.envelope || m).thread || inReplyTo;
     } catch { /* sin historial disponible: el id basta como raíz del hilo */ }
     return inReplyTo;
+  }
+  // Responder SABIENDO a que. `reply` ya hereda hilo y destinatario, pero exige el sobre entero, y
+  // por el puente MCP lo unico que hay a mano es un id. Sin esto, un agente remoto solo tiene
+  // `send`, tiene que escribir `thread` y `in_reply_to` a mano, y no lo hace: medido el 18-nov-2026
+  // entre claude.nico@ y rosetta@, TODAS las respuestas llegaban con hilo nulo y habia que adivinar
+  // que respuesta correspondia a que encargo. El destinatario sale del sobre, asi que tampoco se le
+  // puede contestar a otro por equivocacion.
+  async responder(id, body, { from = null, ...opts } = {}) {
+    const env = await this.sobrePorId(id, from);
+    if (!env) throw new Error(`no envelope with id ${id} in your mailbox or conversations (pass from if you already acknowledged it)`);
+    return this.reply(env, body, opts);
   }
   reply(envelope, body, opts = {}) {
     return this.send({ to: envelope.from, thread: envelope.thread || envelope.id, inReplyTo: envelope.id, type: opts.type || 'result', body, ...opts });
@@ -474,8 +492,10 @@ export class Agent {
   }
   // El id del encargo es el id del SOBRE que lo pidió: `crearEncargo` devuelve ese id, así que
   // quien lo manda ya sabe cómo se va a llamar sin tener que esperar una respuesta.
-  encargar(house, { concept, detail, assignee, parent, verify } = {}) {
-    return this.encargoOp(house, { op: 'crear', concept, detail, assignee, parent, verify });
+  // `due` y `project` ya los leia `crearEncargo` en la casa y el cliente no los mandaba nunca: un
+  // campo que el receptor entiende y el emisor no puede escribir es una promesa publicada a medias.
+  encargar(house, { concept, detail, assignee, parent, verify, due, project } = {}) {
+    return this.encargoOp(house, { op: 'crear', concept, detail, assignee, parent, verify, due, project });
   }
   encargoPaso(house, paso, encargo, extra = {}) { return this.encargoOp(house, { op: paso, encargo, ...extra }); }
   // La senal de un encargo (fase 2): dice que lo tiene detenido, sin moverlo.
@@ -553,7 +573,20 @@ export class Agent {
   // ---------- lectura ----------
   async inbox({ limit = 50 } = {}) { return (await this._call('GET', `/mailbox/${this.local}?limit=${limit}`)).messages; }
   async ack(ids) { return (await this._call('POST', `/mailbox/${this.local}/ack`, { ids: Array.isArray(ids) ? ids : [ids] })).acked; }
-  async outbox() { return (await this._call('GET', `/outbox/${this.local}`)).sent; }
+  // La bandeja de salida SIN filtros devolvia el historial entero: medido el 18-nov-2026, ~346 mil
+  // caracteres, que en un agente no es "largo", es el contexto reventado y la herramienta inservible
+  // justo cuando se la necesita (saber si algo llego). El tope por defecto es parte del arreglo: una
+  // herramienta cuyo tamano depende de cuanto hayas trabajado se rompe sola con el tiempo.
+  // Los mas RECIENTES primero: lo que se pregunta es por lo ultimo que se mando.
+  async outbox({ to, since, status, id, limit = 50 } = {}) {
+    let sent = (await this._call('GET', `/outbox/${this.local}`)).sent || [];
+    if (id) sent = sent.filter((j) => j.id === id || j.envelope?.id === id);
+    if (to) { const d = String(to).toLowerCase(); sent = sent.filter((j) => [...(j.to || []), ...(j.envelope?.to || [])].some((x) => String(x).toLowerCase() === d)); }
+    if (status) { const e = String(status).toLowerCase(); sent = sent.filter((j) => String(j.status || '').toLowerCase() === e); }
+    if (since) sent = sent.filter((j) => String(j.created || j.at || j.envelope?.created || '') >= String(since));
+    sent.sort((a, b) => String(b.created || b.at || '').localeCompare(String(a.created || a.at || '')));
+    return limit > 0 ? sent.slice(0, limit) : sent;
+  }
 
   // ---------- conversación y tiempo real ----------
   // El historial vive en la casa, no en la sesión: desde otro dispositivo se retoma igual.
