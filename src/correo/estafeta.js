@@ -29,7 +29,7 @@ import { contratoPublico, ACP } from '../libro/contratos.js';
 import { estadoDeCuenta, csvDe, nombreCsv } from '../libro/estado.js';
 import { selloPublico } from '../libro/notaria.js';
 import { Tareas } from '../libro/tareas.js';
-import { MEDIA_ENCARGO, PASOS, aplicarPaso, crearEncargo, senalarEncargo, sinPlata, tablero, visiblePara } from '../libro/encargos.js';
+import { MEDIA_ENCARGO, PASOS, aplicarPaso, crearEncargo, senalarEncargo, sinPlata, tablero, visiblePara, visibleParaAlguna } from '../libro/encargos.js';
 import { vista } from '../libro/vista.js';
 import { datosInforme, datosEmbudo, informeHtml } from '../libro/informe.js';
 import { APP_HTML } from '../plataformas/app-html.js';
@@ -652,6 +652,35 @@ export class Estafeta {
     const keys = await this.llavesDeBoveda(local);
     if (!keys) return null;
     return new Agent({ address: `${local}@${this.domain}`, keys, estafeta: this.publicUrl, resolver: this.resolver, fetchImpl: this.fetchPropio });
+  }
+
+  // Las direcciones por las que RESPONDE quien firma: ella misma y, hacia abajo, sus delegados y
+  // los delegados de sus delegados. Se resuelve al LEER y no guardando un campo en el encargo, a
+  // proposito: asi alcanza al trabajo que YA existe —el encargo que destapo esto se creo antes del
+  // arreglo— y no pide migracion.
+  // UNA SOLA direccion: hacia abajo. Un delegado NUNCA ve lo de su principal; el que motivo esto es
+  // de solo mensajes y tiene la llave guardada en la casa, asi que al reves seria una fuga.
+  // Un delegado REVOCADO no habla por nadie. El tope de profundidad es un corta-ciclos, no una
+  // regla del protocolo. Cuesta una lectura por agente de la casa en cada consulta del tablero: hoy
+  // son 16; si un dia son miles, esto es lo primero que hay que indexar.
+  async vocesDe(address, { maxProfundidad = 5 } = {}) {
+    const { domain } = parseAddress(address);
+    if (domain !== this.domain) return [address];
+    const hijos = new Map();
+    for (const l of await this.store.listAgents()) {
+      const rec = await this.store.getAgent(l);
+      const by = rec?.delegation?.by;
+      if (!by || rec.revoked) continue;
+      hijos.set(by, [...(hijos.get(by) || []), `${l}@${this.domain}`]);
+    }
+    const voces = [address];
+    let frente = [address];
+    for (let d = 0; d < maxProfundidad && frente.length; d++) {
+      const siguiente = frente.flatMap((a) => hijos.get(a) || []).filter((a) => !voces.includes(a));
+      voces.push(...siguiente);
+      frente = siguiente;
+    }
+    return voces;
   }
 
   // ---------- tiempo real e historial ----------
@@ -2244,7 +2273,7 @@ export class Estafeta {
         // para no decirle a quien prueba si acerto la forma.
         if (!address) return send(401, { reason: 'open a session with `nyx5 consola` on your computer' });
         const [contratos, encargos] = await Promise.all([this.store.libroListContracts(), this.store.encargoList()]);
-        return { ...send(200, { address, ...vista({ contratos, encargos, para: address, ahora: now() }) }), headers: { 'cache-control': 'no-store' } };
+        return { ...send(200, { address, ...vista({ contratos, encargos, para: address, voces: await this.vocesDe(address), ahora: now() }) }), headers: { 'cache-control': 'no-store' } };
       }
       if (rx.method === 'DELETE' && path === '/consola/sesion') {
         // Cerrar no exige firma: quien tiene el token puede soltarlo, y eso es bueno — si se filtro,
@@ -2487,7 +2516,7 @@ export class Estafeta {
           this.store.libroListContracts(),
           this.store.encargoList(),
         ]);
-        const v = vista({ contratos, encargos, para: who.address, ahora: now() });
+        const v = vista({ contratos, encargos, para: who.address, voces: await this.vocesDe(who.address), ahora: now() });
         const filas = estado ? v.filas.filter((f) => estado.split(',').includes(f.state)) : v.filas;
         return send(200, { address: who.address, ...v, filas });
       }
@@ -2501,7 +2530,8 @@ export class Estafeta {
         const crudos = await this.store.encargoList(estados ? { state: estados } : {});
         // Los MISMOS estados que se pidieron a la bodega deciden que se pinta. Pasar uno y no el
         // otro es como quedo el defecto: pedir los cerrados y pintar solo los abiertos.
-        return send(200, { address: who.address, ...tablero(crudos.filter((e) => visiblePara(e, who.address)), now(), undefined, { estados }) });
+        const voces = await this.vocesDe(who.address);
+        return send(200, { address: who.address, voices: voces, ...tablero(crudos.filter((e) => visibleParaAlguna(e, voces)), now(), undefined, { estados }) });
       }
       if (rx.method === 'GET' && (m = /^\/mailbox\/([^/]+)$/.exec(path))) {
         const who = await this._authenticate(rx, path);
