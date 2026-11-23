@@ -310,6 +310,19 @@ export function visiblePara(e, quien) {
   return e.from === quien || e.assignee === quien || (e.owner || e.from) === quien;
 }
 
+// El mismo predicado para QUIEN HABLA POR VARIAS DIRECCIONES. Nacio de un defecto medido el
+// 23-nov-2026: `claude.nico@` —el Claude conectado de Nicholas— creo el encargo 1081c742 y su
+// dueno NO lo veia en su tablero. No era un permiso mal puesto: un delegado es otra direccion, y
+// el tablero mira direcciones. Quien delega responde por lo que su delegado pide, asi que tiene
+// que verlo; si no, el tablero deja de ser «quien le debe que a quien» justo cuando por fin hay
+// agentes pidiendo trabajo.
+// La direccion es UNA SOLA: el que delega ve lo de su delegado, NUNCA al reves. Un delegado de
+// solo mensajes que viera el trabajo entero de su principal seria una fuga, y ese delegado es
+// precisamente el que tiene la llave guardada en la casa.
+export function visibleParaAlguna(e, voces = []) {
+  return voces.some((q) => visiblePara(e, q));
+}
+
 /** El tablero: lo abierto, agrupado, con lo atascado señalado y el progreso de cada padre. */
 // `estados` dice QUE SE PINTA, y por defecto es lo abierto. Nacio de un filtro que no podia casar
 // nunca: `/encargos?state=completed` pedia a la bodega solo los completados y despues el tablero los

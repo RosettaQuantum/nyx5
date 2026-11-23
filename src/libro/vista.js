@@ -16,7 +16,7 @@
 //     `acp`. Traducir y además borrar el original es pedirle a quien audita que confíe.
 
 import { ACP, estadoACP } from './contratos.js';
-import { ABIERTOS, FINALES, atascado, progreso, senalDeEncargo, visiblePara } from './encargos.js';
+import { ABIERTOS, FINALES, atascado, progreso, senalDeEncargo, visibleParaAlguna } from './encargos.js';
 import { senalAbierta } from './senal.js';
 
 /**
@@ -116,14 +116,21 @@ export function filaDeEncargo(e, hijos = [], ahora = Date.now()) {
  * `para` es la dirección que lee. Una fila se muestra si es parte de ella — en un encargo eso
  * incluye al dueño del árbol, que es lo que deja a quien empezó algo ver las ramas que no pidió
  * él. Sin `para`, no se filtra (es la lectura de la casa).
+ *
+ * `voces` son todas las direcciones por las que responde quien lee: ella y sus delegados. Se usa
+ * SOLO para los encargos, a propósito. Un contrato mueve dinero y quién puede leerlo es otra
+ * decisión, con sus propias superficies; en la práctica no se pierde nada, porque el delegado que
+ * motivó esto es de sólo mensajes y no puede tener contratos. Si algún día un delegado con plata
+ * tiene que verse aquí, que sea una decisión escrita, no el arrastre de este arreglo.
  */
-export function vista({ contratos = [], encargos = [], para = null, ahora = Date.now() } = {}) {
+export function vista({ contratos = [], encargos = [], para = null, voces = null, ahora = Date.now() } = {}) {
+  const quienes = voces?.length ? voces : (para ? [para] : []);
   const hijosDe = new Map();
   for (const e of encargos) if (e.parent_id) hijosDe.set(e.parent_id, [...(hijosDe.get(e.parent_id) || []), e]);
 
   const filas = [
     ...contratos.filter((c) => !para || partesDe(c).includes(para)).map((c) => filaDeContrato(c, ahora)),
-    ...encargos.filter((e) => !para || visiblePara(e, para)).map((e) => filaDeEncargo(e, hijosDe.get(e.id) || [], ahora)),
+    ...encargos.filter((e) => !para || visibleParaAlguna(e, quienes)).map((e) => filaDeEncargo(e, hijosDe.get(e.id) || [], ahora)),
   ];
 
   // El orden es el del tablero y dice en qué mirar primero: lo que ESPERA A ALGUIEN arriba (una
