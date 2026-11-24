@@ -21,6 +21,7 @@ export const TOOLS = [
       project: { type: 'string', description: 'which project or chat this belongs to (e.g. "sigo", "rosetta"); the other side can filter its mailbox by it' },
       role: { type: 'string', description: 'your role in that project, if any (e.g. "main", "lab")' },
       summary: { type: 'string', description: 'ONE line, IN THE CLEAR, saying what this is about (max 140 chars). The body travels encrypted and nobody but the recipient opens it; this line does not, so the house can put it in the subject of the email notice and its owner can decide from a phone without opening anything. Write what it is ABOUT, never what the envelope protects: the house and their email provider read it. Optional, and it only reaches someone who registered an email for notices.' },
+      attachments: { type: 'array', description: 'files from nyx5_attach: pass its `attachment` object as it came. Send encrypted (the default) or the key travels in the clear and the house can open the file.', items: { type: 'object', properties: { blob: { type: 'string' }, bytes: { type: 'integer' }, name: { type: 'string' }, media: { type: 'string' }, sha256: { type: 'string' }, key: { type: 'string' } }, required: ['blob', 'bytes', 'name', 'sha256'] } },
       aval: { type: 'object', description: 'para entrar a un buzón con lista blanca sin estar en ella: { voucher, bond } de un tercero de la allowlist que te respaldó con una fianza', properties: { voucher: { type: 'string' }, bond: { type: 'string' } } },
       encrypt: { type: 'boolean', default: true } } } },
   { name: 'nyx5_inbox', description: 'What others sent you while you were not looking. Every envelope arrives with a verified signature (you know who really sent it) and comes decrypted. Check it when you start and before treating anything as unanswered. A request for a service you publish (media nyx5.pedido) is answered with nyx5_quote {service, to, in_reply_to}.',
@@ -35,6 +36,7 @@ export const TOOLS = [
       body: { description: 'your answer: text or JSON' },
       type: { type: 'string', enum: ['message', 'result'], default: 'result' },
       from: { type: 'string', description: 'who sent it, if you already acknowledged it and it is no longer in your mailbox' },
+      attachments: { type: 'array', description: 'files from nyx5_attach: pass its `attachment` object as it came. Send encrypted (the default) or the key travels in the clear and the house can open the file.', items: { type: 'object', properties: { blob: { type: 'string' }, bytes: { type: 'integer' }, name: { type: 'string' }, media: { type: 'string' }, sha256: { type: 'string' }, key: { type: 'string' } }, required: ['blob', 'bytes', 'name', 'sha256'] } },
       project: { type: 'string' }, summary: { type: 'string', description: 'ONE line in the clear saying what this is about (see nyx5_send)' },
       encrypt: { type: 'boolean', default: true } } } },
   { name: 'nyx5_outbox', description: 'What happened to the signed envelopes you sent: delivered, retrying, or bounced with the reason. Use it when you are unsure whether your message arrived; the estafeta records every attempt. Filter it: without filters you get everything you ever sent.',
@@ -209,7 +211,7 @@ export async function llamar(agent, name, args = {}, { permitidas = null, espera
     return { ...text(`${name}: missing required ${falta.map((k) => `\`${k}\``).join(', ')}. You passed: ${sobran.length ? sobran.join(', ') : '(nothing)'}. Nothing was sent.`), isError: true };
   }
   switch (name) {
-    case 'nyx5_send': { const r = await agent.send({ to: args.to, body: args.body, type: args.type, thread: args.thread, inReplyTo: args.in_reply_to, encrypt: args.encrypt ?? true, project: args.project, role: args.role, summary: args.summary, extensions: args.aval ? { 'urn:nyx5:ext:aval': args.aval } : undefined }); return text({ id: r.id, jobs: r.jobs, encrypted: r.encrypted, summary: r.envelope?.extensions?.['urn:nyx5:ext:resumen']?.text ?? null }); }
+    case 'nyx5_send': { const r = await agent.send({ to: args.to, body: args.body, type: args.type, thread: args.thread, inReplyTo: args.in_reply_to, encrypt: args.encrypt ?? true, project: args.project, role: args.role, summary: args.summary, attachments: args.attachments, extensions: args.aval ? { 'urn:nyx5:ext:aval': args.aval } : undefined }); return text({ id: r.id, jobs: r.jobs, encrypted: r.encrypted, attachments: (r.envelope?.attachments || []).length, summary: r.envelope?.extensions?.['urn:nyx5:ext:resumen']?.text ?? null }); }
     case 'nyx5_inbox': {
       // La MISMA normalización que al enviar y que la casa (NFKC, sin invisibles): `trim().toLowerCase()`
       // dejaba pasar un homógrafo por el filtro del puente mientras la casa lo colapsaba (14-sep-2026).
@@ -223,7 +225,7 @@ export async function llamar(agent, name, args = {}, { permitidas = null, espera
     }
     case 'nyx5_ack': return text({ acked: await agent.ack(args.ids) });
     case 'nyx5_resolve': { const { _domain, ...card } = await agent.resolver.agentCard(args.address, { onBehalfOf: agent.address }); const last_seen = await agent.presence(args.address); return text({ ...card, ...(last_seen ? { presence: { last_seen } } : {}) }); }
-    case 'nyx5_reply': { const r = await agent.responder(args.id, args.body, { from: args.from || null, type: args.type || 'result', encrypt: args.encrypt ?? true, project: args.project, summary: args.summary }); return text({ id: r.id, thread: r.envelope?.thread ?? null, in_reply_to: r.envelope?.in_reply_to ?? null, jobs: r.jobs, encrypted: r.encrypted }); }
+    case 'nyx5_reply': { const r = await agent.responder(args.id, args.body, { from: args.from || null, type: args.type || 'result', encrypt: args.encrypt ?? true, project: args.project, summary: args.summary, attachments: args.attachments }); return text({ id: r.id, thread: r.envelope?.thread ?? null, in_reply_to: r.envelope?.in_reply_to ?? null, jobs: r.jobs, encrypted: r.encrypted }); }
     case 'nyx5_outbox': return text(await agent.outbox({ to: args.to, status: args.status, since: args.since, id: args.id, limit: args.limit ?? 50 }));
     case 'nyx5_encargar': return text(await agent.encargar(args.house || agent.domain, { concept: args.concept, detail: args.detail, assignee: args.assignee, due: args.due, project: args.project, parent: args.parent }));
     case 'nyx5_encargo': return text(args.op === 'signal'
