@@ -51,6 +51,11 @@ export const acuseDe = (receipt, type, destinos, yo) => {
   // — solo le pone un sobre de mas en el buzon, que para una direccion adoptada es un turno que
   // mirar. Lo encontro la suite de `vivos`: un recordatorio dejaba dos sobres donde habia uno.
   if (destinos.length && destinos.every((t) => String(t).toLowerCase() === String(yo).toLowerCase())) return undefined;
+  // Y una direccion de SISTEMA tampoco pide acuse por lo que ELLA manda. `ideas@` confirmando una
+  // idea, `verifica@` su veredicto: son servicios de la casa, no alguien esperando saber si llego.
+  // Un acuse ahi es un sobre de mas en un buzon que nadie abre. Lo dijo su propio guardia, que
+  // cuenta UNA salida por confirmacion y vio dos.
+  try { if (SISTEMA.has(parseAddress(yo).local)) return undefined; } catch { /* sin direccion valida no se decide aqui */ }
   try { if (destinos.some((t) => SISTEMA.has(parseAddress(t).local))) return undefined; } catch { /* una direccion rara se resuelve mas abajo */ }
   return 'delivered';
 };
