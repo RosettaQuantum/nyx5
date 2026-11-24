@@ -540,6 +540,26 @@ defecto que este ítem vino a cerrar.
   día se cobra al aceptar, así que dos relojes a la vez pueden pasarse por uno, nunca por mucho.
 
 
+### 4.11 El medidor: una dirección que mide sola, sin modelo (24-nov-2026)
+
+`src/correo/medidor.js`, `test/medidor.test.js`, `scripts/revision-medidor/`. Decisión de Nicholas del
+24-nov para la demo del 27-nov: un agente le encarga a `rosetta@` la medición de un dominio y recibe la
+ficha firmada, con el acta sellada en la notaría.
+
+- **Alta**: `POST /admin/medidor { local, owner, keys }` (Bearer de la casa). La dirección ya existe y es
+  raíz; la llave pasa a la bóveda con prueba de posesión y la tarjeta declara `custody.via = medidor`.
+  Uno por casa. `GET` lee la configuración; `DELETE` saca la llave y devuelve la tarjeta a `keys: self`.
+  No convive con un cerebro (`/admin/assistants`) ni con un ejecutor (`/admin/executors`): 409 cruzado.
+- **Encendido**: `NYX5_MEDIDOR=on` y la bóveda. `NYX5_MEDIDOR_URLS` (opcional) cambia la lista cerrada del
+  instrumento; por defecto `rosettaquantum.com/v1/medicion` y su respaldo por workers.dev (el borde de
+  Rosetta tiene Bot Fight Mode). La verificación usa `…/mcp` de los MISMOS orígenes.
+- **Cuándo corre**: en el tick de cada petición (mide con 18 s de tope; el edge da 30) y en el reloj
+  (100 s). Si no vuelve en 6 s manda «midiendo…»; un 5xx o un desafío avisa y reintenta (3 intentos);
+  un 400 vuelve en palabras. Lo que manda sale de la cola en el acto (no espera al cron).
+- **Qué NO hace**: no confirma lo que no es suyo (la dirección puede tener otra mente); no contesta a
+  quien la lista no eligió; no llama a la API de Anthropic; no publica nada del cliente (la notaría
+  recibe sólo el hash del acta con nombre genérico).
+
 ## 5. Interoperabilidad
 
 - **MCP**: `nyx5 mcp --agent keys/x.json` expone el agente como servidor MCP por stdio. Configuración para Claude Desktop en el README. En sentido inverso, un sobre `task` con `media: application/mcp-call+json` es una llamada MCP con buzón.

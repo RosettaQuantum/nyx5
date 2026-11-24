@@ -48,6 +48,7 @@ import { Agent } from './agente.js';
 import { eventoDeCobro } from './cobro.js';
 import { atenderAsistentes, gastoDe, PRECIOS, MEDIA_GATE } from './asistente.js';
 import { atenderIdeas, paginaDeIdeas, puertaIdeas, LOCAL as IDEAS_LOCAL, VIA as IDEAS_VIA } from './ideas.js';
+import { atenderMedidor, URLS_POR_DEFECTO as MEDIDOR_URLS, NS as MEDIDOR_NS, VIA as MEDIDOR_VIA } from './medidor.js';
 import { subirAdjunto, bajarAdjunto, borrarAdjunto, limpiarAdjuntos, capacidadAdjuntos } from './adjuntos.js';
 import { atenderEjecutores, despachar as despacharCi, despachable, validarConfig as validarCi, urlDe as urlCi, PROVEEDORES as CI_PROVEEDORES, INTENTOS as CI_INTENTOS, CUPO_DESPACHOS_DIA } from './ci.js';
 import { validarFiltros, puntajeDe, precioMinimo, FILTROS } from './indice.js';
@@ -81,7 +82,7 @@ export class Estafeta {
     port = 4000, host = '127.0.0.1', publicUrl,
     hosts = {}, fetchImpl = globalThis.fetch,
     policy = {}, retry = {}, workerIntervalMs = 1000, libro = {}, objetos, sinObjetos = false,
-    index = {}, email = {}, verifica = {}, eventos = true, tareas = {}, terms = null, remoto = {}, asistente = {}, ideas = {},
+    index = {}, email = {}, verifica = {}, eventos = true, tareas = {}, terms = null, remoto = {}, asistente = {}, ideas = {}, medidor = {},
     extensions = null,
     log = (...a) => console.log(`[estafeta ${domain}]`, ...a),
   }) {
@@ -158,6 +159,11 @@ export class Estafeta {
     // casa (NYX5_IDEAS=on) y exige la bóveda: su llave vive ahí, como la de un asistente de sistema.
     // `cupo` sólo para pruebas (no sale de ninguna variable de entorno): el límite es de código.
     this.ideas = { enabled: !!(ideas.enabled && this.boveda), cupo: ideas.cupo || undefined };
+    // El medidor (src/correo/medidor.js): una dirección que atiende pedidos de medición sin modelo.
+    // Se enciende por casa (NYX5_MEDIDOR=on) y exige la bóveda. `urls` es la lista CERRADA del
+    // instrumento; `fetchImpl` y `tiempos` sólo para pruebas.
+    this.medidor = { enabled: !!(medidor.enabled && this.boveda), urls: (medidor.urls?.length ? medidor.urls : MEDIDOR_URLS).filter((u) => /^https?:\/\//.test(u)),
+      fetchImpl: medidor.fetchImpl ? (...a) => medidor.fetchImpl(...a) : null, tiempos: medidor.tiempos || null };
     this._ready = null;
     this._domainCardCache = null; // { value, until }
     this._pushes = [];            // avisos por webhook en vuelo (los espera flushPushes)
@@ -1080,6 +1086,64 @@ export class Estafeta {
     await this._evento('ideas_created', card.address, { owner, allow: allow.length });
     return { status: 201, body: { address: card.address, custody: card.custody, owner, allow } };
   }
+  // El MEDIDOR (src/correo/medidor.js): una dirección viva, de esta casa y raíz, cuya llave pasa a
+  // la bóveda para que conteste pedidos de medición sin el Mac. Como la adopción de un asistente: la
+  // tarjeta declara la custodia (`custody.via = medidor`, la excepción declarada al invariante 8) y
+  // el dueño conserva su llave. Uno por casa. POST da de alta o cambia `owner`/`enabled`; GET lee la
+  // configuración; DELETE saca la llave de la bóveda y devuelve la tarjeta a `keys: self`.
+  async _adminMedidor(rx) {
+    if (!this.boveda) return { status: 503, body: { reason: 'this house has no vault key' } };
+    const b = rx.body || {};
+    const cfg = await this.store.kvGet(MEDIDOR_NS, '_config');
+    const reCertificar = async (local, rec, custody) => {
+      const { certification: _c, webhook, notify_email, custody: _cu, ...cuerpo } = rec;
+      const card = signObject({ ...cuerpo, custody }, this.keys, 'certification');
+      await this.store.putAgent(local, { ...card, webhook, notify_email });
+      this.resolver.invalidate(`agent:${local}@${this.domain}`);
+      return card;
+    };
+    if (rx.method === 'GET') return { status: 200, body: { medidor: cfg || null, urls: this.medidor.urls } };
+    if (rx.method === 'DELETE') {
+      if (!cfg) return { status: 404, body: { reason: 'this house has no measurer' } };
+      const rec = await this.store.getAgent(cfg.local);
+      if (rec && rec.custody?.via === MEDIDOR_VIA) await reCertificar(cfg.local, rec, { keys: 'self', via: null, ended: iso(), was: MEDIDOR_VIA });
+      await this.store.kvDelete?.('boveda', cfg.local);
+      await this.store.kvDelete?.(MEDIDOR_NS, '_config');
+      await this._evento('measurer_removed', `${cfg.local}@${this.domain}`, {});
+      return { status: 200, body: { address: `${cfg.local}@${this.domain}`, removed: true } };
+    }
+    if (rx.method !== 'POST') return { status: 405, body: { reason: 'GET, POST or DELETE' } };
+    const l = String(b.local || cfg?.local || '').toLowerCase();
+    if (!Estafeta.validLocal(l)) return { status: 400, body: { reason: 'local must be a valid address name' } };
+    if (cfg && cfg.local !== l) return { status: 409, body: { reason: `this house already has a measurer (${cfg.local}@${this.domain}): remove it first with DELETE /admin/medidor` } };
+    if (this.isSystem(l)) return { status: 409, body: { reason: `${l}@ is a protocol address` } };
+    const rec = await this.store.getAgent(l);
+    if (!rec || rec.revoked) return { status: 404, body: { reason: `${l}@${this.domain} does not exist: the measurer is an address that is already alive` } };
+    if (l.startsWith('g.') || rec.group) return { status: 409, body: { reason: `${l}@${this.domain} is a group` } };
+    if (rec.delegation) return { status: 409, body: { reason: `${l}@${this.domain} is a delegated address: the measurer must be a root address` } };
+    // Un sobre lo contesta UNO: ni un cerebro ni un ejecutor ya puestos en esa dirección.
+    if (await this.store.kvGet('asistente', l)) return { status: 409, body: { reason: `${l}@${this.domain} already has an assistant brain: remove it with DELETE /admin/assistants/${l}` } };
+    if (await this.store.kvGet('ci', l)) return { status: 409, body: { reason: `${l}@${this.domain} already has an executor: remove it with DELETE /admin/executors/${l}` } };
+    let owner = cfg?.owner || null;
+    if (b.owner != null) { try { const p = parseAddress(String(b.owner)); owner = `${p.local}@${p.domain}`; } catch { return { status: 400, body: { reason: 'owner must be an address' } }; } }
+    const enabled = b.enabled === undefined ? (cfg ? cfg.enabled : true) : b.enabled === true;
+    const since = iso();
+    if (rec.custody?.via !== MEDIDOR_VIA) {
+      if (rec.custody?.keys === 'house') return { status: 409, body: { reason: `${l}@${this.domain} is already under house custody via ${rec.custody.via}` } };
+      const k = b.keys || {};
+      if (k.sig !== rec.sig || k.enc !== rec.enc || !k.sigPriv || !k.encPriv) return { status: 400, body: { reason: 'keys do not match the card of that address' } };
+      // Prueba de posesión (invariante 9): la privada firma y la pública de la tarjeta verifica.
+      let posee = false; try { posee = verifyObject(signObject({ nyx5: '1', prueba: l }, k), k.sig); } catch { posee = false; }
+      if (!posee) return { status: 400, body: { reason: 'sigPriv does not match sig' } };
+      await this.store.kvPut('boveda', l, { sellado: this.boveda.sellar({ sig: k.sig, sigPriv: k.sigPriv, enc: k.enc, encPriv: k.encPriv }, l), root: null, since });
+      await reCertificar(l, rec, { keys: 'house', via: MEDIDOR_VIA, since });
+    } else if (b.keys) return { status: 409, body: { reason: `${l}@${this.domain} is already the measurer: its key is not replaced through this door` } };
+    const nuevo = { local: l, owner, enabled, created: cfg?.created || since, updated: since };
+    await this.store.kvPut(MEDIDOR_NS, '_config', nuevo);
+    if (!cfg) await this._evento('measurer_created', `${l}@${this.domain}`, {});
+    const card = await this.agentCard(l);
+    return { status: cfg ? 200 : 201, body: { address: `${l}@${this.domain}`, custody: card?.custody || null, medidor: nuevo } };
+  }
   async _adminAsistente(rx, local, accion) {
     const b = rx.body || {};
     const indice = async () => (await this.store.kvGet('asistente', '_indice')) || [];
@@ -1173,6 +1237,7 @@ export class Estafeta {
       // contestarían el mismo encargo dos veces, y el segundo no sabría que el primero ya respondió.
       if (await this.store.kvGet('asistente', l)) return { status: 409, body: { reason: `${l}@${this.domain} already has a brain in this house: an address answers with a brain or with an executor, not both. Remove it with DELETE /admin/assistants/${l}` } };
       if (await this.store.kvGet('ci', l)) return { status: 409, body: { reason: `${l}@${this.domain} already has an executor: change it with PUT /admin/executors/${l}, or remove it with DELETE /admin/executors/${l}` } };
+      if (rec.custody?.via === MEDIDOR_VIA) return { status: 409, body: { reason: `${l}@${this.domain} is the measurer of this house: an address answers with the measurer or with an executor, not both. Remove it with DELETE /admin/medidor` } };
       const { local: _l, ...campos } = b;
       const v = validarCi(campos);
       if (v.error) return { status: 400, body: { reason: v.error } };
@@ -1409,6 +1474,9 @@ export class Estafeta {
     if (programado) { try { await atenderAsistentes(this); } catch (e) { this.log(`asistentes: ${e.message}`); } }
     if (programado && this.ideas.enabled) { try { await atenderIdeas(this); } catch (e) { this.log(`ideas: ${e.message}`); } }
     if (programado) { try { await atenderEjecutores(this); } catch (e) { this.log(`ejecutores: ${e.message}`); } }
+    // El medidor corre también en el tick de una petición: una medición rápida (3-15 s) contesta en
+    // segundos; si no alcanza, el pedido queda tomado y lo termina el reloj (ver medidor.js).
+    if (this.medidor.enabled) { try { await atenderMedidor(this, { programado }); } catch (e) { this.log(`medidor: ${e.message}`); } }
     // Retención de los adjuntos (NX-413): 30 días, o 7 desde que el último destinatario lo bajó.
     // Es limpieza, como la purga del kv: si falla no puede tumbar la entrega del correo de todos.
     if (programado && this.objetos) { try { await limpiarAdjuntos(this, { nowMs: now() }); } catch (e) { this.log(`adjuntos: ${e.message}`); } }
@@ -2211,6 +2279,12 @@ export class Estafeta {
       if ((m = /^\/admin\/assistants(?:\/([^/]+))?(?:\/(knowledge|config|pause|resume))?$/.exec(path))) {
         if ((rx.headers.authorization || '') !== `Bearer ${this.adminToken}`) return send(401, { reason: 'only the house configures assistants' });
         return this._adminAsistente(rx, m[1] ? dec(m[1]).toLowerCase() : null, m[2] || null);
+      }
+      // ----- el medidor: alta, consulta y baja por la casa -----
+      if (this.medidor.enabled && path === '/admin/medidor') {
+        if ((rx.headers.authorization || '') !== `Bearer ${this.adminToken}`) return send(401, { reason: 'only the house configures the measurer' });
+        const r = await this._adminMedidor(rx);
+        return send(r.status, r.body);
       }
       // ----- ideas@: alta por la casa; el registro lo lee su dueño (o la casa) -----
       if (this.ideas.enabled && rx.method === 'POST' && path === '/admin/ideas') {

@@ -14,6 +14,7 @@
 //   NYX5_INDEX         'on' para operar el índice federado (default off)
 //   NYX5_EMAIL         'on' para habilitar el puente de correo
 //   NYX5_IDEAS         'on' para el buzón ideas@ (registra y confirma, nunca ejecuta; exige NYX5_VAULT_KEY)
+//   NYX5_MEDIDOR       'on' para el medidor (atiende pedidos de medición sin modelo; exige NYX5_VAULT_KEY)
 //   DB                    binding D1
 
 import { Estafeta } from '../correo/estafeta.js';
@@ -145,6 +146,8 @@ function estafetaDesde(env) {
     asistente: { apiKey: env.ANTHROPIC_API_KEY },
     // ideas@ (src/correo/ideas.js): el buzón de vacaciones. Se enciende por casa y usa la bóveda.
     ideas: { enabled: cfg('IDEAS') === 'on' },
+    // El medidor (src/correo/medidor.js): pedidos de medición atendidos sin modelo. Se enciende por casa.
+    medidor: { enabled: cfg('MEDIDOR') === 'on', urls: String(cfg('MEDIDOR_URLS') || '').split(',').map((u) => u.trim()).filter(Boolean) },
     log: (...a) => console.log(...a),
   });
   return instancia;
