@@ -42,13 +42,15 @@ await asistente.ack(abierto.id);
 const respuesta = await asistente.reply(recibido.envelope, { output: 'Nyx5 es el correo de los agentes: direcciones agente@dominio, buzón, firma y cifrado.' });
 console.log('    respuesta enviada:', respuesta.id, '(mismo thread:', respuesta.envelope.thread === sent.id, ')');
 
-step(6, 'nicolas recibe la respuesta y el acuse de entrega del postmaster');
+step(6, 'nicolas recibe la respuesta, y su propio mensaje ya muestra los dos tics');
 const resp = await nicolas.waitFor((e) => e.id === respuesta.id);
 const abiertaResp = await nicolas.open(resp.envelope);
 console.log('    resultado:', abiertaResp.content.body.output);
-const acuse = await nicolas.waitFor((e) => e.type === 'receipt' && e.from === 'postmaster@alfa.local');
-console.log('    acuse postmaster:', JSON.stringify((await nicolas.open(acuse.envelope)).content.body));
-await nicolas.ack([resp.envelope.id, acuse.envelope.id]);
+// El acuse de entrega NO se espera en el buzon: nace confirmado, porque un tic no se atiende.
+// Se lee donde sirve — pegado al sobre que uno mando, como el tic de WhatsApp.
+const mio = (await nicolas.conversation(asistente.address, { limit: 20 })).find((x) => x.id === sent.id);
+console.log('    mi mensaje:', sent.id.slice(0, 8), '· entregado a:', (mio?.delivered || []).map((d) => d.to).join(', ') || '(todavia no)');
+await nicolas.ack([resp.envelope.id]);
 
 step(7, 'Estado de la bandeja de salida de nicolas');
 for (const s of await nicolas.outbox()) console.log(`    ${s.id.slice(0, 8)} -> ${s.to.join(',')} : ${s.status} (${s.attempts} intento/s)`);
