@@ -48,6 +48,8 @@ NYX5_REMOTE_DAYS = "50"
 # con un número IDEA-### y confirma con un texto fijo. Nunca ejecuta nada ni llama a ningún modelo.
 # Sólo en esta casa; el alta es POST /admin/ideas (docs/ARQUITECTURA.md §4.7).
 NYX5_IDEAS = "on"
+# El medidor (src/correo/medidor.js): rosetta@ atiende pedidos de medición sin modelo (24-nov-2026).
+NYX5_MEDIDOR = "on"
 
 # Casa oficial en el D1 "nyx5" (limpio). El D1 viejo "chsq" (ca773156…) queda abandonado a propósito.
 [[d1_databases]]

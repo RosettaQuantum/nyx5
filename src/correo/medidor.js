@@ -147,7 +147,9 @@ const VERBO_COMPROBAR = /\b(comprueba|comprobar|compruebala|chequea|check)\b/;
 const INGLES = /\b(measure|measurement|scan|verify|verification|please|sector of|the)\b/;
 // Un dominio dentro de un texto. No toma el dominio de una dirección (`rosetta@nyx5.com`): el
 // carácter anterior no puede ser `@` ni parte de un nombre.
-const CANDIDATO = /(?<![@\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59}))(?![\w@-])/g;
+// Los bordes miran CUALQUIER letra (\p{L}), no sólo ASCII: con \w, «münchen.de» daba «nchen.de», o
+// sea otro dominio medido en silencio. Un nombre con letras fuera de ASCII se pide en punycode.
+const CANDIDATO = /(?<![@\p{L}\p{N}_.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59}))(?![\p{L}\p{N}_@-])/gu;
 const NO_PUBLICOS = /\.(local|localhost|internal|test|example|invalid|onion|lan|home|corp|arpa)$/;
 
 // ¿Es `x` un nombre de dominio público con forma válida? Devuelve el dominio normalizado o null.
@@ -191,7 +193,8 @@ export function interpretar(contenido, { tipo = 'message' } = {}) {
   const idioma = INGLES.test(t) && !/\b(mide|medir|por favor|inicia|comprueba)\b/.test(t) ? 'en' : 'es';
   const mide = VERBO_MEDIR.test(t);
   const verifica = VERBO_VERIFICAR.test(t);
-  const candidatos = [...t.matchAll(CANDIDATO)].map((x) => x[1]);
+  // Del texto en minúsculas TAL CUAL: quitar tildes antes convertiría «sántander.cl» en otro dominio.
+  const candidatos = [...texto.toLowerCase().matchAll(CANDIDATO)].map((x) => x[1]);
   const crudo = candidatos[0] || null;
   const sector = sectorDe(t);
   if (crudo) {
@@ -303,6 +306,18 @@ export function armarActa({ yo, e, recibido, dominio, sector, json, texto }) {
 }
 
 // ---------------------------------------------------------------- el tick
+// Lo que el medidor manda sale YA, no en el próximo minuto del reloj: la entrega de la cola es la
+// misma que hace el tick (reclamo exclusivo, así que dos relojes no entregan dos veces). Medido en
+// workerd el 24-nov: sin esto la ficha esperaba al cron siguiente aunque la medición tardara 3 s.
+async function entregarCola(est) {
+  try { for (const job of await est.store.claimDueJobs(Date.now(), 20)) await est._deliver(job); }
+  catch (err) { est.log(`medidor: la cola no se pudo entregar ahora (${err.message}); la entrega el reloj`); }
+}
+async function enviar(est, a, opciones) {
+  const r = await a.send(opciones);
+  await entregarCola(est);
+  return r;
+}
 const diaDe = (ms) => new Date(ms).toISOString().slice(0, 10);
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 const minus = (x) => String(x || '').toLowerCase();
@@ -379,7 +394,7 @@ export async function atenderMedidor(est, { programado = true, nowMs = Date.now(
         if (!(await est.store.kvPutIfAbsent(NS, `visto:${e.id}`, { at: new Date(nowMs).toISOString() }, nowMs + VISTO_MS))) continue;
         if (asistentes.has(minus(e.from))) continue;
         const n = await est.store.kvIncrement(NS_CUPO, `ayuda:${minus(e.from)}:${diaDe(nowMs)}`, (Math.floor(nowMs / DIA_MS) + 2) * DIA_MS, nowMs);
-        if (n <= CUPO.ayudaPorRemitenteDia) await a.send({ to: e.from, body: T.ayuda(yo), ...hilo });
+        if (n <= CUPO.ayudaPorRemitenteDia) await enviar(est, a, { to: e.from, body: T.ayuda(yo), ...hilo });
         continue;
       }
       // Un pedido: se toma UNA vez (dos relojes no lo toman dos veces) y ahí se cobra el cupo.
@@ -391,7 +406,7 @@ export async function atenderMedidor(est, { programado = true, nowMs = Date.now(
       if (!(await est.store.kvPutIfAbsent(NS, `p:${e.id}`, nuevo))) continue;
       tomados++;
       const cerrar = async (texto) => {
-        await a.send({ to: e.from, body: texto, ...hilo });
+        await enviar(est, a, { to: e.from, body: texto, ...hilo });
         await est.store.kvPut(NS, `p:${e.id}`, { ...nuevo, estado: 'cerrado', cerrado: new Date().toISOString() });
         await est.store.ackMail(local, e.id);
         cerrados++;
@@ -444,15 +459,17 @@ async function medir(est, { a, yo, e, estado, programado, nowMs }) {
   // tomó muere (el edge corta un kick a los 30 s), el reloj siguiente lo retoma.
   if (!(await est.store.kvPutIfAbsent(NS_TURNO, e.id, { at: new Date().toISOString(), programado }, Date.now() + (programado ? tiempos.turnoCronMs : tiempos.turnoKickMs)))) return false;
   const guardar = (cambios) => est.store.kvPut(NS, `p:${e.id}`, (estado = { ...estado, ...cambios }));
+  const inicio = Date.now();
   const pedido = pedirMedicion(est, { dominio: estado.dominio, sector: estado.sector, idioma: estado.idioma, agente: `${yo} (nyx5-medidor/1)`, timeoutMs: programado ? tiempos.cronMs : tiempos.kickMs });
   let r = null;
   if (!estado.acuse) {
     r = await Promise.race([pedido, espera(tiempos.acuseMs).then(() => null)]);
-    if (!r) { await a.send({ to: e.from, body: T.acuse(estado.dominio, estado.sector), ...hilo }); await guardar({ acuse: true }); }
+    if (!r) { await enviar(est, a, { to: e.from, body: T.acuse(estado.dominio, estado.sector), ...hilo }); await guardar({ acuse: true }); }
   }
   if (!r) r = await pedido;
+  est.log(`medidor: sobre ${e.id}: instrumento ${r.ok ? 'ok' : `falla (${r.motivo})`} a los ${Date.now() - inicio} ms (${programado ? 'reloj' : 'petición'})`);
   const cerrar = async (texto, final) => {
-    await a.send({ to: e.from, body: texto, ...hilo });
+    await enviar(est, a, { to: e.from, body: texto, ...hilo });
     await guardar({ estado: final, cerrado: new Date().toISOString() });
     await est.store.ackMail(local, e.id);
     await est.store.kvDelete?.(NS_TURNO, e.id);
@@ -464,7 +481,7 @@ async function medir(est, { a, yo, e, estado, programado, nowMs }) {
     const intentos = estado.intentos + (r.timeout && !programado ? 0 : 1);
     if (intentos >= tiempos.intentos) return cerrar(T.fallo(estado.dominio, r.motivo), 'fallido');
     if (!estado.avisado && !(r.timeout && !programado && estado.acuse)) {
-      await a.send({ to: e.from, body: T.reintento(r.motivo, intentos + 1, tiempos.intentos), ...hilo });
+      await enviar(est, a, { to: e.from, body: T.reintento(r.motivo, intentos + 1, tiempos.intentos), ...hilo });
       await guardar({ intentos, avisado: true });
     } else await guardar({ intentos });
     await est.store.kvDelete?.(NS_TURNO, e.id);
@@ -482,7 +499,7 @@ async function medir(est, { a, yo, e, estado, programado, nowMs }) {
     if (op?.id) await est.store.kvPut(NS, `op:${op.id}`, { pedido: e.id }, Date.now() + 7 * DIA_MS);
     // Se entrega la cola ahora (el mismo trabajo del reloj) para leer el sello en este turno.
     for (let i = 0; i < 2 && !sello; i++) {
-      for (const job of await est.store.claimDueJobs(Date.now(), 20)) await est._deliver(job);
+      await entregarCola(est);
       sello = (await est.store.notariaFind(sha, yo))?.sello || null;
     }
   } catch (err) { est.log(`medidor: no se pudo sellar: ${err.message}`); }

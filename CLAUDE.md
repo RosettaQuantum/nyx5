@@ -887,3 +887,24 @@ Siete cosas que hay que saber para no romperlas:
   nombre y el archivo pasaria por ella en claro), y **no esta desplegado**: los buckets R2 y el
   binding `BLOBS` los pone Nicholas. Sin binding la casa NO aloja adjuntos, `/blob` contesta 503 y
   la tarjeta del dominio no anuncia cupos — anunciar un limite es prometer que hay donde guardar.
+
+### 24-nov-2026 — el MEDIDOR (rama `medidor`): rosetta@ mide sola para la demo del 27-nov
+`src/correo/medidor.js` + `_adminMedidor` + `POST|GET|DELETE /admin/medidor` + `NYX5_MEDIDOR=on`,
+`test/medidor.test.js` (13 pruebas, 16 mutantes que gritan), `scripts/revision-medidor/`, ARQUITECTURA §4.11.
+Lo que hay que saber para no romperlo:
+- **Es determinista y no gasta**: lee dominio y sector, llama al instrumento de Rosetta (lista CERRADA de
+  orígenes; el dominio pedido nunca es una URL), contesta firmado y sella el acta con un sobre a `libro@`.
+  La prueba de la fuente fija los imports, que del agente sólo use `open`/`send`/`notarize` y que toda red
+  salga de `est.medidor.urls`.
+- **No ackea lo que no atiende**: `rosetta@` también la lee una sesión de Claude. La charla queda pendiente;
+  la ayuda sale una vez por sobre y tres por remitente y día, nunca a un asistente.
+- **Dos carreras que Node escondía y aparecieron sólo repitiendo la suite** (2 de 3 y 2 de 6 corridas):
+  la ayuda salía dos veces (la marca de visto ahora se TOMA con `kvPutIfAbsent`) y otro reloj medía un
+  pedido sin sector mientras el primero contestaba que faltaba (el pedido nace `tomado` y pasa a
+  `midiendo` sólo cuando hay algo que medir). Una suite verde una vez no prueba una carrera.
+- **Lo que se manda sale de la cola en el acto** (`entregarCola`): medido en workerd, sin eso la ficha
+  esperaba al cron siguiente aunque la medición tardara 3 s. Con eso: 3,6 s de punta a punta en workerd.
+- **Homógrafos**: los bordes del dominio miran cualquier letra (`\p{L}`) y se extrae del texto con tildes:
+  con `\w`, «münchen.de» medía «nchen.de» y «sántander.cl» medía `santander.cl`. Se pide punycode.
+- **NO cubre**: un asistente que cite la ficha con otras palabras puede volver a pedirla (lo acota el cupo
+  de 20 por remitente y día y 100 por casa); el cupo cuenta pedidos, no mediciones exitosas.

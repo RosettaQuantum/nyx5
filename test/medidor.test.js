@@ -94,6 +94,10 @@ test('interpretar: dominio y sector del texto, nunca el dominio de una direcció
   assert.equal(interpretar({ body: 'hola, ¿cómo va el informe?' }).accion, null, 'charla: no es para el medidor');
   assert.equal(interpretar({ body: 'nada' }, { tipo: 'task' }).accion, 'ayuda', 'un task sin dominio recibe la ayuda');
   assert.equal(interpretar({ body: `Medición de santander.cl · sector banca ${MARCA_ACTA}` }).accion, null, 'una respuesta nuestra citada no se vuelve a medir');
+  // Homógrafos y nombres con letras fuera de ASCII: nunca se mide OTRO dominio en silencio.
+  assert.equal(interpretar({ body: 'mide münchen.de, sector banca' }).dominio ?? null, null, 'no «nchen.de»');
+  assert.equal(interpretar({ body: 'mide sántander.cl, sector banca' }).dominio ?? null, null, 'no «santander.cl» ni «ntander.cl»');
+  assert.equal(interpretar({ body: 'mide \u0441antander.cl, sector banca' }).dominio ?? null, null, 'una c cirílica no se convierte en otro dominio');
   assert.equal(dominioValido('-malo.cl'), null); assert.equal(dominioValido('a'.repeat(64) + '.cl'), null); assert.equal(dominioValido('xn--bcher-kva.ch'), 'xn--bcher-kva.ch');
   assert.equal(sectorDe('Minería'), 'mineria'); assert.equal(sectorDe('sin sector'), null);
 });
