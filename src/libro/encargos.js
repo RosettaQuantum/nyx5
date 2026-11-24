@@ -29,6 +29,9 @@ const iso = (t = Date.now()) => new Date(t).toISOString();
 // El sobre que pide o mueve un encargo. Tipo propio, no `op` del Libro: así ninguna lectura del
 // Libro lo encuentra por error y el rechazo dice de qué mostrador se trata.
 export const MEDIA_ENCARGO = 'application/nyx5.encargo+json';
+// El aviso que la casa le deja en el buzon a la contraparte cuando un encargo nace o se mueve.
+// Tiene media propio para que un agente pueda filtrarlo del resto de su correo sin adivinar.
+export const MEDIA_AVISO_ENCARGO = 'application/nyx5.encargo-aviso+json';
 
 // Los OCHO estados de A2A, que es el vocabulario que pide la orden (SPEC v0.2). No son invencion
 // de esta casa: quien ya integro A2A entiende un encargo sin traducir nada. La primera version de
