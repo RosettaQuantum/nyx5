@@ -574,7 +574,10 @@ test('un sobre a sí mismo pasa su propia política (grito: antes rebotaba o se 
   assert.equal((await conSello.balance(H)).balance, 0, 'se cobró una estampilla a sí misma');
   // Silencio: la lista y la estampilla siguen cerradas para los demás.
   await extrano.send({ to: porLista.address, body: 'y yo?' });
-  const rebote = await extrano.waitFor((e) => e.from === `postmaster@${H}`, { timeoutMs: 8000 });
+  // El postmaster ahora manda DOS cosas: rebotes y acuses de entrega (los acuses pasaron a ser lo
+  // normal el 24-nov-2026). Esperar «el primer sobre del postmaster» agarraba el acuse de un envio
+  // anterior. Se espera el REBOTE, que es lo que esta prueba mira.
+  const rebote = await extrano.waitFor((e) => e.from === `postmaster@${H}` && e.content?.body?.status === 'failed', { timeoutMs: 8000 });
   assert.match(JSON.stringify((await extrano.open(rebote.envelope)).content.body), /allowlist/);
 });
 

@@ -32,9 +32,14 @@ after(async () => { await casa?.stop(); fs.rmSync(tmp, { recursive: true, force:
 test('acuse de lectura: al confirmar, el remitente recibe un recibo de la casa, una sola vez, y su historial marca leído', async () => {
   const m = await remitente.send({ to: lectora.address, body: 'hola' });
   const llego = await lectora.waitFor((e) => e.id === m.id, { timeoutMs: 5000 });
-  assert.equal((await remitente.inbox()).length, 0, 'antes de confirmar no hay acuse');
+  // Desde el 24-nov-2026 el postmaster manda DOS clases de recibo: el de ENTREGA (automatico, dice
+  // `status`) y el de LECTURA (opt-in, dice `read_of`). Esta prueba es del segundo, asi que cuenta
+  // el segundo: contar «recibos» a secas mezclaba dos cosas distintas.
+  const deLectura = (xs, id) => xs.filter((x) => x.envelope?.content?.body?.read_of === id);
+  assert.deepEqual(deLectura(await remitente.inbox(), m.id), [], 'antes de confirmar no hay acuse de lectura');
   await lectora.ack([llego.envelope.id]);
-  const acuse = await remitente.waitFor((e) => e.from === `postmaster@${H}` && e.in_reply_to === m.id, { timeoutMs: 5000 });
+  // El de LECTURA, no el de entrega: los dos vienen del postmaster y los dos citan el mismo sobre.
+  const acuse = await remitente.waitFor((e) => e.from === `postmaster@${H}` && e.content?.body?.read_of === m.id, { timeoutMs: 5000 });
   const cuerpo = (await remitente.open(acuse.envelope)).content.body;
   assert.equal(cuerpo.read_of, m.id); assert.equal(cuerpo.read_by, lectora.address); assert.ok(cuerpo.read_at);
   assert.equal(acuse.envelope.thread, m.id, 'el acuse queda en el hilo del mensaje');
@@ -57,7 +62,8 @@ test('sin opt-in no hay acuse ni presencia; con opt-in la presencia se ve por ho
   const llego = await callada.waitFor((e) => e.id === m.id, { timeoutMs: 5000 });
   await callada.ack([llego.envelope.id]);
   await new Promise((r) => setTimeout(r, 400));
-  assert.equal((await remitente.inbox()).filter((x) => x.envelope.in_reply_to === m.id).length, 0, 'callada no activó acuses');
+  // Lo mismo: se cuenta el acuse de LECTURA, no el de entrega, que ahora llega siempre.
+  assert.equal((await remitente.inbox()).filter((x) => x.envelope?.content?.body?.read_of === m.id).length, 0, 'callada no activó acuses de lectura');
   assert.equal(await remitente.presence(callada.address), null);
   const visto = await remitente.presence(lectora.address);
   assert.ok(visto && /T\d\d:00:00\.000Z$/.test(visto), `presencia redondeada a la hora: ${visto}`);

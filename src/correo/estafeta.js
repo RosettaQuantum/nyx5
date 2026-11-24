@@ -709,7 +709,7 @@ export class Estafeta {
   }
   // La conversación con una dirección (o, sin dirección, la lista de conversaciones): lo recibido,
   // incluido lo confirmado, y lo enviado, que ahora queda en la bandeja con su sobre.
-  async conversacion(local, { con = null, limit = 50, project = null } = {}) {
+  async conversacion(local, { con = null, limit = 50, project = null, receipts = false } = {}) {
     const propia = `${local}@${this.domain}`;
     const delProyecto = (x) => !project || proyectoDe(x.envelope) === project;
     const recibidos = (await this.store.listMailHistory(local, { limit: 1000 })).map((m) => ({ id: m.envelope.id, dir: 'in', at: m.received, acked: !!m.acked, envelope: m.envelope }));
@@ -734,13 +734,35 @@ export class Estafeta {
       if (r.envelope.from !== `postmaster@${lector.domain}`) continue;
       leidos.set(b.read_of, { by: b.read_by, at: b.read_at });
     }
+    // EL SEGUNDO TIC. El acuse de entrega llega como recibo del postmaster de ESTA casa (la cola es
+    // de quien envia) con `{ of, to, status: 'delivered' }`. Se CONSUME aqui: marca el sobre que uno
+    // mando y despues desaparece de la vista, porque un tic no es un mensaje. Esa es la diferencia
+    // entre esto y la primera version, que metia el acuse en la conversacion y duplicaba el
+    // historial que un agente lee para retomar — diez suites lo dijeron a la vez.
+    const entregados = new Map();
+    for (const r of recibidos) {
+      const b = r.envelope?.content?.body;
+      if (r.envelope?.type !== 'receipt' || typeof b?.of !== 'string' || b?.status !== 'delivered') continue;
+      if (r.envelope.from !== `postmaster@${this.domain}`) continue;
+      const previo = entregados.get(b.of) || [];
+      if (!previo.some((x) => x.to === b.to)) previo.push({ to: b.to, at: r.at });
+      entregados.set(b.of, previo);
+    }
+    for (const e of enviados) {
+      const d = entregados.get(e.id);
+      if (d) e.delivered = d;
+    }
     for (const e of enviados) {
       const l = leidos.get(e.id); if (!l) continue;
       const destinos = e.envelope.to.map((t) => String(t).toLowerCase());
       const lectorDom = parseAddress(l.by).domain;
       if (destinos.includes(l.by) || destinos.some((t) => t.startsWith('g.') && parseAddress(t).domain === lectorDom)) e.read = l;
     }
-    const todos = [...recibidos, ...enviados].filter(delProyecto);
+    // Los recibos son acuse de MAQUINA, no conversacion: con ellos el historial se duplica y el ojo
+    // —o el contexto de un agente que retoma— deja de encontrar lo que importa. La CLI ya lo hacia
+    // en su bitacora desde antes; el principio vivia en un cliente y no en la fuente. Se ven con
+    // `receipts: true`, porque un recibo del Libro SI es la prueba de un asiento.
+    const todos = [...recibidos, ...enviados].filter(delProyecto).filter((x) => receipts || x.envelope?.type !== 'receipt');
     // Un mensaje de grupo se conversa con el GRUPO, no con quien lo escribió.
     const grupo = (x) => x.envelope.to.find((t) => { try { const p = parseAddress(t); return p.domain === this.domain && p.local.startsWith('g.'); } catch { return false; } });
     const contraparte = (x) => grupo(x) || (x.dir === 'in' ? (x.envelope.extensions?.['urn:nyx5:ext:email']?.from || x.envelope.from) : (x.envelope.to.find((t) => t !== propia) || x.envelope.to[0]));
@@ -1827,10 +1849,22 @@ export class Estafeta {
 
   // Avisos del postmaster al remitente (rebotes y acuses de entrega). Llevan el hash del sobre original.
   async _notify(job, to, status, reason) {
-    await this._systemSend('postmaster', [job.envelope.from], {
+    const env = await this._systemSend('postmaster', [job.envelope.from], {
       in_reply_to: job.envelope.id, thread: job.envelope.thread || job.envelope.id,
       content: { media: 'application/json', body: { of: job.envelope.id, sha256: sha256hex(canonical(job.envelope)), to, status, reason } },
     });
+    // Un acuse de ENTREGA no se atiende: es contabilidad de maquina. Si queda PENDIENTE, el buzon
+    // de quien manda no se vacia nunca —un ejecutor que contesta y sale lo deja ahi para siempre— y
+    // una direccion adoptada lo cuenta como un turno que mirar. Se confirma solo al nacer: sigue en
+    // el historial, que es de donde la conversacion lo consume para marcar el tic.
+    // El REBOTE no: ese si hay que leerlo, porque dice que algo NO llego.
+    if (status === 'delivered') {
+      try {
+        const { local, domain } = parseAddress(job.envelope.from);
+        if (domain === this.domain) await this.store.ackMail(local, env.id);
+      } catch (e) { this.log(`acuse de entrega sin confirmar: ${e.message}`); }
+    }
+    return env;
   }
   async _bounce(job, to, reason) { this.log(`rebote ${job.envelope.id} -> ${to}: ${reason}`); await this._notify(job, to, 'failed', reason); }
 
@@ -2741,8 +2775,11 @@ export class Estafeta {
         const limit = Math.max(1, Math.min(Number(rx.query.get('limit') || 50) || 50, 500));
         const project = this._proyectoPedido(rx.query);
         if (project === false) return send(400, { reason: 'invalid project: empty after normalization, or a reserved word' });
-        if (con) return send(200, { with: con.toLowerCase(), messages: await this.conversacion(who.local, { con: con.toLowerCase(), limit, project }) });
-        return send(200, { conversations: await this.conversacion(who.local, { project }) });
+        // `?receipts=1` para ver tambien los acuses: por defecto no son conversacion, pero un recibo
+        // del Libro ES la prueba de un asiento y quien lo busque tiene que poder pedirlo.
+        const conRecibos = ['1', 'true', 'yes'].includes(String(rx.query.get('receipts') || '').toLowerCase());
+        if (con) return send(200, { with: con.toLowerCase(), messages: await this.conversacion(who.local, { con: con.toLowerCase(), limit, project, receipts: conRecibos }) });
+        return send(200, { conversations: await this.conversacion(who.local, { project, receipts: conRecibos }) });
       }
       if (rx.method === 'GET' && (m = /^\/delegations\/([^/]+)$/.exec(path))) {
         const who = await this._authenticate(rx, path);

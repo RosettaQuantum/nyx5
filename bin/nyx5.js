@@ -554,7 +554,7 @@ try {
           try { const { sender, ...ab } = await a.open(m.envelope); const b = ab.content?.body;
             resumen = (typeof b === 'string' ? b : JSON.stringify(b) || '').replace(/\s+/g, ' ').slice(0, 110); }
           catch (e) { resumen = `(no se pudo abrir: ${e.message})`; }
-          filas.push({ at: m.at, dir: m.dir, con, id: m.envelope?.id, acked: !!m.acked, status: m.status || null, resumen });
+          filas.push({ at: m.at, dir: m.dir, con, id: m.envelope?.id, acked: !!m.acked, status: m.status || null, delivered: m.delivered || null, read: m.read || null, resumen });
         }
       }
       filas.sort((x, y) => String(x.at).localeCompare(String(y.at)));
@@ -568,8 +568,13 @@ try {
       for (const f of filas) {
         const flecha = f.dir === 'in' ? '<-' : '->';
         const marca = f.dir === 'in' ? (f.acked ? '  ' : ' !') : '  ';
-        console.log(`${marca} ${f.at.slice(11, 16)} ${flecha} ${f.con.padEnd(26)} ${f.resumen}`);
+        // Los dos tics de lo que UNO mando: uno al salir, dos cuando la casa del destinatario lo
+        // tomo, y en negrita —aqui, un punto— cuando ademas lo leyeron. Es lo mismo que ya sabia la
+        // bandeja de salida; lo que faltaba era que se viera sin ir a buscarlo.
+        const tics = f.dir === 'out' ? (f.read ? ' **' : f.delivered ? ' ..' : '  .') : '   ';
+        console.log(`${marca}${tics} ${f.at.slice(11, 16)} ${flecha} ${f.con.padEnd(26)} ${f.resumen}`);
       }
+      if (filas.some((f) => f.dir === 'out')) console.log('\n  . sent   .. delivered   ** read');
       if (sinAtender.length) console.log(`\n! = arrived and nobody has attended it yet (${sinAtender.length})`);
       break;
     }
