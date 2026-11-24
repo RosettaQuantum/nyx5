@@ -209,6 +209,38 @@ test('si tarda: primero «midiendo…» y después la ficha, en el mismo hilo', 
   assert.match(rs[1].content.body, /^Medición de bci\.cl/);
 });
 
+test('el acuse se cuenta desde que el pedido LLEGÓ: si esperó más que el umbral, «Recibido…» sale antes que la ficha aunque la medición sea rápida', { timeout: 60_000 }, async () => {
+  // Medido en producción el 24-nov: el reloj tomaba el pedido 25 s después de llegado, medía en 3 s y
+  // el acuse no salía nunca. Aquí el pedido espera 700 ms (umbral 300) y la medición tarda 150 ms.
+  casa.medidor.enabled = false;
+  const p = await nicholas.send({ to: MEDIDOR, body: 'mide copec.cl, sector energia' });
+  for (let i = 0; i < 50 && !(await pendienteEnRosetta(p.id)); i++) await espera(50);
+  await espera(700);
+  guion.push(async (url, body) => { await espera(150); return responder(200, okDe(body)); });
+  casa.medidor.enabled = true;
+  await atenderMedidor(casa);
+  const rs = await respuestasA(nicholas, p.id, { cuantas: 2 });
+  assert.equal(rs.length, 2, 'acuse y ficha');
+  assert.equal(rs[0].content.body, TEXTOS.es.acuse('copec.cl', 'energia'));
+  assert.match(rs[1].content.body, /^Medición de copec\.cl/);
+});
+
+test('el medidor corre antes que el resto del tick: contesta aunque el índice se cuelgue', { timeout: 60_000 }, async () => {
+  // Medido en producción el 24-nov: con el medidor al final del tick, el de la petición nunca llegaba
+  // a él. Aquí el rastreo del índice no termina nunca y el pedido igual se contesta en segundos.
+  const indice = casa.index.enabled, rastreo = casa._indexCrawlIfDue;
+  casa.index.enabled = true;
+  casa._indexCrawlIfDue = () => new Promise(() => {});
+  try {
+    const t0 = Date.now();
+    const p = await nicholas.send({ to: MEDIDOR, body: 'mide enap.cl, sector energia' });
+    const [r] = await respuestasA(nicholas, p.id, { timeoutMs: 5000 });
+    assert.ok(r, 'contestó con el índice colgado');
+    assert.match(r.content.body, /^Medición de enap\.cl/);
+    assert.ok(Date.now() - t0 < 5000);
+  } finally { casa.index.enabled = indice; casa._indexCrawlIfDue = rastreo; }
+});
+
 test('nunca silencio: un 503 avisa y reintenta, y un desafío del borde prueba la URL de respaldo', { timeout: 60_000 }, async () => {
   llamadas.length = 0;
   guion.push(() => responder(503, { ok: false }), () => responder(503, { ok: false }));

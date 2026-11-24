@@ -318,7 +318,7 @@ export function armarActa({ yo, e, recibido, dominio, sector, json, texto }) {
 // Lo que el medidor manda sale YA, no en el próximo minuto del reloj: la entrega de la cola es la
 // misma que hace el tick (reclamo exclusivo, así que dos relojes no entregan dos veces). Medido en
 // workerd el 24-nov: sin esto la ficha esperaba al cron siguiente aunque la medición tardara 3 s.
-async function entregarCola(est) {
+export async function entregarCola(est) {
   try { for (const job of await est.store.claimDueJobs(Date.now(), 20)) await est._deliver(job); }
   catch (err) { est.log(`medidor: la cola no se pudo entregar ahora (${err.message}); la entrega el reloj`); }
 }
@@ -411,7 +411,7 @@ export async function atenderMedidor(est, { programado = true, nowMs = Date.now(
       // `midiendo`, otro reloj podía medir un pedido sin sector mientras éste contestaba que faltaba
       // (medido en Node: 2 de 6 corridas llamaron al instrumento con sector null).
       const nuevo = { estado: 'tomado', tomado: new Date(nowMs).toISOString(), accion: p.accion, dominio: p.dominio, crudo: p.crudo, sector: p.sector, idioma: p.idioma || 'es',
-        from: e.from, thread: e.thread || e.id, recibido: new Date(nowMs).toISOString(), intentos: 0, acuse: false, avisado: false };
+        from: e.from, thread: e.thread || e.id, recibido: new Date(nowMs).toISOString(), llegado: m.received || e.created || new Date(nowMs).toISOString(), intentos: 0, acuse: false, avisado: false };
       if (!(await est.store.kvPutIfAbsent(NS, `p:${e.id}`, nuevo))) continue;
       tomados++;
       const cerrar = async (texto) => {
@@ -472,7 +472,13 @@ async function medir(est, { a, yo, e, estado, programado, nowMs }) {
   const pedido = pedirMedicion(est, { dominio: estado.dominio, sector: estado.sector, idioma: estado.idioma, agente: `${yo} (nyx5-medidor/1)`, timeoutMs: programado ? tiempos.cronMs : tiempos.kickMs });
   let r = null;
   if (!estado.acuse) {
-    r = await Promise.race([pedido, espera(tiempos.acuseMs).then(() => null)]);
+    // El umbral del acuse se cuenta desde que el pedido LLEGÓ, no desde que se empieza a medir.
+    // Medido en producción el 24-nov: el reloj tomaba el pedido 25 s después de llegado, medía en 3 s
+    // y el «Recibido…» no salía nunca (o salía a los 90 s junto con la ficha). Quien pidió espera
+    // desde que mandó, así que si ya pasó el umbral el acuse sale ANTES de llamar al instrumento.
+    const llegado = Date.parse(estado.llegado || estado.recibido) || Date.now();
+    const resta = Math.max(0, tiempos.acuseMs - (Date.now() - llegado));
+    r = resta > 0 ? await Promise.race([pedido, espera(resta).then(() => null)]) : null;
     if (!r) { await enviar(est, a, { to: e.from, body: T.acuse(estado.dominio, estado.sector), ...hilo }); await guardar({ acuse: true }); }
   }
   if (!r) r = await pedido;

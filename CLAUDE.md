@@ -913,3 +913,8 @@ Lo que hay que saber para no romperlo:
   de `_adminMedidor`); no hay puerta para importar una llave. `medicion.rosetta` no sirve: la forma
   `<algo>.<agente>` es la de un subagente y exige la firma del padre. Los textos quedaron sellados en
   `docs/aprobados/medidor-textos.json` (+ `.sha256`), con prueba y mutación.
+- **El acuse llegaba tarde o nunca (ensayo en producción del 24-nov, 20:09 UTC)**: el pedido lo tomaba el
+  reloj 23-25 s después de llegado (el tick de la petición nunca llegaba al medidor, que estaba al FINAL,
+  detrás del rastreo del índice) y el umbral de 6 s se contaba desde que empezaba a medir. Ahora el medidor
+  corre justo después de entregar la cola en los dos ticks, y el umbral se cuenta desde que el pedido LLEGÓ.
+  Un waitUntil aparte se probó en workerd y NO sirve: corría en paralelo con la entrega y no veía el pedido.
