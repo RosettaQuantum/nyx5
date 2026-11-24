@@ -62,6 +62,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { Estafeta } from '../src/correo/estafeta.js';
 import { Agent, topeDeRed, esFallaDeRed } from '../src/correo/agente.js';
+import { SENALES } from '../src/libro/senal.js';
 import { Resolver } from '../src/correo/resolver.js';
 import { runMcpServer } from '../src/puentes/mcp.js';
 import { recoger, responder } from '../src/puentes/ejecutor.js';
@@ -84,7 +85,7 @@ const OPCIONES = {
   parent: { type: 'string' }, state: { type: 'string' }, detail: { type: 'string' },
   domain: { type: 'string' }, port: { type: 'string' }, data: { type: 'string' }, 'admin-token': { type: 'string' }, 'public-url': { type: 'string' },
   'require-relay': { type: 'boolean' }, hosts: { type: 'string' }, registration: { type: 'string' }, welcome: { type: 'string' }, fee: { type: 'string' },
-  invite: { type: 'string' }, uses: { type: 'string' }, expires: { type: 'string' }, note: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' },
+  invite: { type: 'string' }, uses: { type: 'string' }, expires: { type: 'string' }, note: { type: 'string' }, reason: { type: 'string' }, evidence: { type: 'string' }, verdict: { type: 'string' }, url: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' },
   address: { type: 'string' }, estafeta: { type: 'string' }, out: { type: 'string' }, agent: { type: 'string' },
   policy: { type: 'string' }, allow: { type: 'string' }, 'pow-bits': { type: 'string' }, webhook: { type: 'string' }, mcp: { type: 'string' }, a2a: { type: 'string' },
   // `--text` es alias de `--body`: es el nombre que sale solo al escribir el comando, y
@@ -504,8 +505,29 @@ try {
       break;
     }
     case 'encargo': {
+      // Lo barato ANTES de lo caro: que falte `--kind` se sabe sin leer una llave ni tocar la red.
+      // Comprobarlo despues de `loadAgent()` hacia que el error visible fuera el de la llave, y el
+      // verdadero no se viera nunca.
+      const op = need('op');
+      if ((op === 'signal' || op === 'senalar') && !o.kind) {
+        console.error(`signal needs --kind, one of: ${SENALES.join(', ')}`);
+        console.error('example: nyx5 encargo --op signal --id <encargo> --kind progress --reason "what is holding it"');
+        process.exit(2);
+      }
       const a = await loadAgent();
-      print(await a.encargoPaso(o.house || a.domain, need('op'), need('id'), { note: o.note }));
+      const casa = o.house || a.domain;
+      // `signal` NO es un paso y no se manda por `encargoPaso`: pide `kind` (vocabulario CERRADO) y
+      // `reason`, y la CLI los tiraba. El comando salia, la casa lo rechazaba con `kind must be one
+      // of: ...` y el que lo corrio se enteraba por un rebote del postmaster, minutos despues. Una
+      // superficie que ofrece una op y no manda lo que esa op exige es una promesa publicada.
+      // La lista sale de `SENALES`, no de la memoria de nadie: a mano envejece.
+      if (op === 'signal' || op === 'senalar') {
+        print(await a.senalarEncargo(casa, need('id'), o.kind, o.reason ?? o.note ?? null));
+        break;
+      }
+      // Y los pasos llevan la EVIDENCIA, que la casa ya sabia leer y ninguna superficie podia
+      // escribir: una entrega sin con que comprobarla obliga a creerle al que entrega.
+      print(await a.encargoPaso(casa, op, need('id'), { note: o.note, evidence_sha256: o.evidence, url: o.url, verdict: o.verdict }));
       break;
     }
 
