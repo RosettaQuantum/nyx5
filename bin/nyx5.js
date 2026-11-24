@@ -85,7 +85,7 @@ const OPCIONES = {
   parent: { type: 'string' }, state: { type: 'string' }, detail: { type: 'string' },
   domain: { type: 'string' }, port: { type: 'string' }, data: { type: 'string' }, 'admin-token': { type: 'string' }, 'public-url': { type: 'string' },
   'require-relay': { type: 'boolean' }, hosts: { type: 'string' }, registration: { type: 'string' }, welcome: { type: 'string' }, fee: { type: 'string' },
-  invite: { type: 'string' }, uses: { type: 'string' }, expires: { type: 'string' }, note: { type: 'string' }, reason: { type: 'string' }, evidence: { type: 'string' }, verdict: { type: 'string' }, url: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' },
+  invite: { type: 'string' }, uses: { type: 'string' }, expires: { type: 'string' }, note: { type: 'string' }, reason: { type: 'string' }, evidence: { type: 'string' }, verdict: { type: 'string' }, url: { type: 'string' }, summary: { type: 'string' }, role: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' },
   address: { type: 'string' }, estafeta: { type: 'string' }, out: { type: 'string' }, agent: { type: 'string' },
   policy: { type: 'string' }, allow: { type: 'string' }, 'pow-bits': { type: 'string' }, webhook: { type: 'string' }, mcp: { type: 'string' }, a2a: { type: 'string' },
   // `--text` es alias de `--body`: es el nombre que sale solo al escribir el comando, y
@@ -414,7 +414,12 @@ try {
     case 'send': {
       const a = await loadAgent();
       const body = o.json ? JSON.parse(need('body')) : need('body');
-      const r = await a.send({ to: need('to').split(',').map((s) => s.trim()), body, type: o.type || 'message', encrypt: !o.plain, thread: o.thread, inReplyTo: o['reply-to'], receipt: o.receipt });
+      // `project`, `role` y `summary` viajan en el sobre desde hace meses y la CLI no los escribia:
+      // `--project` se podia pasar y se ignoraba en silencio, y `--summary` ni existia. El resumen
+      // es la UNICA linea en claro del sobre — es la que la casa pone en el asunto del aviso por
+      // correo, o sea lo que su dueno lee en el telefono para decidir sin abrir nada. Sin el, los
+      // avisos llegaban sin decir de que se trataba. Medido el 24-nov-2026.
+      const r = await a.send({ to: need('to').split(',').map((s) => s.trim()), body, type: o.type || 'message', encrypt: !o.plain, thread: o.thread, inReplyTo: o['reply-to'], receipt: o.receipt, project: o.project, role: o.role, summary: o.summary });
       print({ id: r.id, jobs: r.jobs, encrypted: !!r.envelope.encrypted });
       break;
     }

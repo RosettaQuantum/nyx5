@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { Estafeta } from '../src/correo/estafeta.js';
 import { join } from '../src/correo/unirse.js';
 import { SENALES } from '../src/libro/senal.js';
+import { proyectoDe, resumenDe } from '../src/correo/politica.js';
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'nyx5.js');
 const P = 4896;
@@ -104,4 +105,25 @@ test('un paso lleva la EVIDENCIA, que ninguna superficie podia escribir', async 
   assert.equal(e.delivered.evidence_sha256, sha, 'la evidencia no llego: hay que creerle al que entrega');
   assert.equal(e.delivered.url, 'https://ejemplo.test/entrega.json');
   assert.equal(e.delivered.note, 'ahi va');
+});
+
+test('send escribe el proyecto y el RESUMEN, que es la unica linea en claro', async () => {
+  // Cuarta y quinta del mismo dia, misma familia: el sobre los lleva, la herramienta MCP los
+  // ofrece, y la CLI no los escribia. `--project` se pasaba y se ignoraba EN SILENCIO (lo peor de
+  // los dos), y `--summary` ni existia como bandera.
+  // El resumen importa mas de lo que parece: es lo UNICO que viaja en claro, y es lo que la casa
+  // pone en el asunto del aviso por correo. Sin el, el dueno recibe en su telefono un aviso que no
+  // dice de que se trata y tiene que abrir la sesion para saber si le importa.
+  const r = await correr(['send', '--agent', llaveJefe, '--to', obrero.address,
+    '--body', 'el cuerpo va cifrado', '--project', 'rosetta', '--summary', 'de que se trata, en claro']);
+  assert.equal(r.code, 0, r.stderr);
+  await casa.tick();
+
+  const m = (await obrero.inbox({ limit: 10 })).find((x) => x.envelope.id === JSON.parse(r.stdout).id);
+  assert.ok(m, 'el sobre no llego');
+  assert.equal(proyectoDe(m.envelope), 'rosetta', 'el proyecto se ignoro en silencio');
+  assert.equal(resumenDe(m.envelope), 'de que se trata, en claro', 'el resumen no viajo');
+  // Y el cuerpo SIGUE cifrado: el resumen viaja al lado, no en vez de.
+  assert.ok(m.envelope.encrypted, 'el cuerpo dejo de ir cifrado');
+  assert.ok(!JSON.stringify(m.envelope).includes('el cuerpo va cifrado'), 'el cuerpo viaja en claro');
 });
