@@ -47,7 +47,7 @@ async function instrumento(url, init) {
   if (String(url).endsWith('/mcp')) return responder(200, { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] } });
   return responder(200, okDe(body));
 }
-const admin = (metodo, ruta, body) => fetch(`${URL_CASA}${ruta}`, { method: metodo, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, body: await r.json() }));
+const admin = (metodo, ruta, body) => fetch(`${URL_CASA}${ruta}`, { method: metodo, headers: { authorization: 'Bearer t', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15_000) }).then(async (r) => ({ status: r.status, body: await r.json() }));
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 // Todas las respuestas de rosetta@ a un sobre, abiertas, en orden de llegada.
 async function respuestasA(quien, id, { cuantas = 1, timeoutMs = 8000 } = {}) {
@@ -86,7 +86,7 @@ before(async () => {
 });
 after(async () => { await casa?.stop(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-test('interpretar: dominio y sector del texto, nunca el dominio de una dirección; JSON explícito; el acta no es un pedido', () => {
+test('interpretar: dominio y sector del texto, nunca el dominio de una dirección; JSON explícito; el acta no es un pedido', { timeout: 60_000 }, () => {
   const a = interpretar({ body: 'Hola rosetta@nyx5.com, por favor mide santander.cl, sector banca.' });
   assert.deepEqual([a.accion, a.dominio, a.sector, a.idioma], ['medir', 'santander.cl', 'banca', 'es']);
   assert.equal(interpretar({ body: 'mide https://www.Santander.CL/personas en bancos' }).dominio, 'santander.cl', 'sin www, minúsculas, desde una URL');
@@ -108,7 +108,7 @@ test('interpretar: dominio y sector del texto, nunca el dominio de una direcció
   assert.equal(sectorDe('Minería'), 'mineria'); assert.equal(sectorDe('sin sector'), null);
 });
 
-test('alta: la llave NACE en la bóveda, no se importa ni sale; la tarjeta declara la custodia; uno por casa; no convive con cerebro ni ejecutor', async () => {
+test('alta: la llave NACE en la bóveda, no se importa ni sale; la tarjeta declara la custodia; uno por casa; no convive con cerebro ni ejecutor', { timeout: 60_000 }, async () => {
   const cuerpo = { local: LOCAL_M, owner: nicholas.address, allow: [nicholas.address, colega.address] };
   assert.equal((await fetch(`${URL_CASA}/admin/medidor`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) })).status, 401);
   const conLlave = await admin('POST', '/admin/medidor', { ...cuerpo, keys: rosetta.keys });
@@ -145,7 +145,7 @@ test('alta: la llave NACE en la bóveda, no se importa ni sale; la tarjeta decla
   assert.equal(JSON.stringify(leer.body).includes(deBoveda.sigPriv), false);
 });
 
-test('los textos son los aprobados: el código sirve exactamente lo sellado en docs/aprobados', () => {
+test('los textos son los aprobados: el código sirve exactamente lo sellado en docs/aprobados', { timeout: 60_000 }, () => {
   const doc = JSON.parse(fs.readFileSync(path.join(raiz, 'docs/aprobados/medidor-textos.json'), 'utf8'));
   const sha = fs.readFileSync(path.join(raiz, 'docs/aprobados/medidor-textos.sha256'), 'utf8').split(/\s+/)[0];
   assert.equal(sha256hex(canonical(doc.textos)), sha, 'el archivo aprobado no cambió');
@@ -155,7 +155,7 @@ test('los textos son los aprobados: el código sirve exactamente lo sellado en d
   }
 });
 
-test('el recorrido: pide, recibe UNA respuesta firmada y cifrada con la ficha, y el acta queda sellada y se verifica', async () => {
+test('el recorrido: pide, recibe UNA respuesta firmada y cifrada con la ficha, y el acta queda sellada y se verifica', { timeout: 60_000 }, async () => {
   llamadas.length = 0;
   const t0 = Date.now();
   const pedido = await nicholas.send({ to: MEDIDOR, body: 'Por favor mide santander.cl, sector banca.' });
@@ -200,7 +200,7 @@ test('el recorrido: pide, recibe UNA respuesta firmada y cifrada con la ficha, y
   assert.equal(llamadasApi, 0, 'no se llamó a la API de Anthropic');
 });
 
-test('si tarda: primero «midiendo…» y después la ficha, en el mismo hilo', async () => {
+test('si tarda: primero «midiendo…» y después la ficha, en el mismo hilo', { timeout: 60_000 }, async () => {
   guion.push(async (url, body) => { await espera(800); return responder(200, okDe(body)); });
   const pedido = await nicholas.send({ to: MEDIDOR, body: 'mide bci.cl, sector banca' });
   const rs = await respuestasA(nicholas, pedido.id, { cuantas: 2 });
@@ -209,7 +209,7 @@ test('si tarda: primero «midiendo…» y después la ficha, en el mismo hilo', 
   assert.match(rs[1].content.body, /^Medición de bci\.cl/);
 });
 
-test('nunca silencio: un 503 avisa y reintenta, y un desafío del borde prueba la URL de respaldo', async () => {
+test('nunca silencio: un 503 avisa y reintenta, y un desafío del borde prueba la URL de respaldo', { timeout: 60_000 }, async () => {
   llamadas.length = 0;
   guion.push(() => responder(503, { ok: false }), () => responder(503, { ok: false }));
   const pedido = await nicholas.send({ to: MEDIDOR, body: 'mide falabella.com, sector retail' });
@@ -230,7 +230,7 @@ test('nunca silencio: un 503 avisa y reintenta, y un desafío del borde prueba l
   assert.match(rs3[0].content.body, /\(el borde pidió un desafío; el borde pidió un desafío\)/);
 });
 
-test('un error de Rosetta vuelve en palabras, sin sello; tres fallas cierran con el motivo', async () => {
+test('un error de Rosetta vuelve en palabras, sin sello; tres fallas cierran con el motivo', { timeout: 60_000 }, async () => {
   guion.push(() => responder(400, { ok: false, error: 'Sector desconocido. Use uno de: banca.' }));
   const p1 = await nicholas.send({ to: MEDIDOR, body: { dominio: 'ejemplo.cl', sector: 'banca' } });
   const [r1] = await respuestasA(nicholas, p1.id);
@@ -245,7 +245,7 @@ test('un error de Rosetta vuelve en palabras, sin sello; tres fallas cierran con
   guion.length = 0;
 });
 
-test('falta el sector o el dominio no es válido: se dice, sin medir', async () => {
+test('falta el sector o el dominio no es válido: se dice, sin medir', { timeout: 60_000 }, async () => {
   llamadas.length = 0;
   const p1 = await nicholas.send({ to: MEDIDOR, body: 'mide nuevo.cl' });
   const [r1] = await respuestasA(nicholas, p1.id);
@@ -257,7 +257,7 @@ test('falta el sector o el dominio no es válido: se dice, sin medir', async () 
   assert.equal(llamadas.length, 0, `llamadas sueltas: ${JSON.stringify(llamadas.map((l) => l.body.dominio || l.body.params?.name))}`);
 });
 
-test('lo que no es un pedido queda para quien lea el buzón: ni se contesta ni se confirma; la ayuda va una vez', async () => {
+test('lo que no es un pedido queda para quien lea el buzón: ni se contesta ni se confirma; la ayuda va una vez', { timeout: 60_000 }, async () => {
   const charla = await colega.send({ to: MEDIDOR, body: 'hola, ¿cómo va el informe del lunes?' });
   const ayuda = await colega.send({ to: MEDIDOR, body: 'necesito una medición, ¿qué haces?' });
   const [r] = await respuestasA(colega, ayuda.id);
@@ -274,7 +274,7 @@ test('lo que no es un pedido queda para quien lea el buzón: ni se contesta ni s
   assert.equal((await respuestasA(colega, otra.id, { timeoutMs: 0 })).length, 0, 'sobre el cupo de ayudas no se contesta');
 });
 
-test('a un desconocido no se le contesta ni se le mide: ni con un intro ni con un sobre firmado que entró sin estar en la lista', async () => {
+test('a un desconocido no se le contesta ni se le mide: ni con un intro ni con un sobre firmado que entró sin estar en la lista', { timeout: 60_000 }, async () => {
   llamadas.length = 0;
   const intro = await extrano.send({ to: MEDIDOR, type: 'intro', body: 'mide santander.cl, sector banca' });
   // Lo que entra a un buzón por lista sin estar en ella (un aval, §9): firmado y verificado, pero la lista no lo eligió.
@@ -288,7 +288,7 @@ test('a un desconocido no se le contesta ni se le mide: ni con un intro ni con u
   assert.equal(await pendienteEnRosetta(colado.id), true, 'queda para quien lea el buzón');
 });
 
-test('cupo por remitente y día: el que se pasa recibe el motivo y no se mide', async () => {
+test('cupo por remitente y día: el que se pasa recibe el motivo y no se mide', { timeout: 60_000 }, async () => {
   llamadas.length = 0;
   const dia = new Date().toISOString().slice(0, 10);
   await casa.store.kvPut(NS_CUPO, `${colega.address}:${dia}`, CUPO.porRemitenteDia);
@@ -299,7 +299,7 @@ test('cupo por remitente y día: el que se pasa recibe el motivo y no se mide', 
   await casa.store.kvDelete(NS_CUPO, `${colega.address}:${dia}`);
 });
 
-test('dos relojes a la vez: una medición y una respuesta', async () => {
+test('dos relojes a la vez: una medición y una respuesta', { timeout: 60_000 }, async () => {
   casa.medidor.enabled = false;
   const p = await nicholas.send({ to: MEDIDOR, body: 'mide itau.cl, sector banca' });
   for (let i = 0; i < 50 && !(await pendienteEnRosetta(p.id)); i++) await espera(50);
@@ -311,7 +311,7 @@ test('dos relojes a la vez: una medición y una respuesta', async () => {
   assert.equal((await respuestasA(nicholas, p.id, { timeoutMs: 0 })).length, 1, 'una sola respuesta');
 });
 
-test('segundo acto: inicia la verificación por el MCP de Rosetta y devuelve el TXT; después la comprueba', async () => {
+test('segundo acto: inicia la verificación por el MCP de Rosetta y devuelve el TXT; después la comprueba', { timeout: 60_000 }, async () => {
   llamadas.length = 0;
   const token = 'a'.repeat(64);
   guion.push((url, body) => responder(200, { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, token, dominio: body.params.arguments.dominio, txt: { nombre: '_qready.santander.cl', tipo: 'TXT', valor: `qready-verificacion=${token}` }, caduca_utc: '2026-11-27T12:00:00.000Z' }) }] } }));
@@ -336,7 +336,7 @@ test('segundo acto: inicia la verificación por el MCP de Rosetta y devuelve el 
   assert.equal(r4.content.body, TEXTOS.es.verificar_fallo('bci.cl', 'Demasiados pedidos seguidos. Espere un minuto.'));
 });
 
-test('el límite es de código: sin API de Anthropic, sin Libro salvo la notaría, y la red sólo por la lista cerrada', () => {
+test('el límite es de código: sin API de Anthropic, sin Libro salvo la notaría, y la red sólo por la lista cerrada', { timeout: 60_000 }, () => {
   const fuente = fs.readFileSync(path.join(raiz, 'src/correo/medidor.js'), 'utf8');
   const codigo = fuente.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   const imports = [...codigo.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]).sort();
