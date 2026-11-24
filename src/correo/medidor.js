@@ -57,6 +57,15 @@ const MAX_TEXTO = 4000;           // lo que se lee de un pedido para interpretar
 const MAX_RESPUESTA = 2_000_000;  // bytes de la respuesta del instrumento
 const MAX_FICHA = 20_000;         // caracteres de la ficha que viajan en el mensaje
 export const MARCA_ACTA = 'nyx5-medicion/1';
+// La ficha pública de la dirección del medidor (decisión de Nicholas del 24-nov: «su tarjeta pública
+// dice que la custodia la tiene la casa y que es el medidor de Rosetta»). La custodia la declara además
+// el campo `custody` de la tarjeta, firmado por la casa.
+export const PERFIL = Object.freeze({
+  display_name: 'Medidor de Rosetta',
+  summary: 'Mide la exposición post-cuántica de un dominio con el instrumento de Rosetta y sella el resultado en la notaría de la casa. Su llave nació en la bóveda de la casa y sólo existe ahí.',
+  languages: ['es', 'en'],
+  tags: ['rosetta', 'pqc', 'medicion'],
+});
 
 // ---------------------------------------------------------------- textos (los lee una persona)
 const tabla = (filas) => filas.join('\n');

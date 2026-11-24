@@ -1,0 +1,114 @@
+{
+  "aprobado": "Nicholas, 24-nov-2026, directo en la cajita: «TEXTOS: aprobados tal cual, ES y EN, los de medidor.js». Los renders de abajo son lo que el código sirve con estas muestras; test/medidor.test.js exige que coincidan byte a byte.",
+  "muestras": {
+    "acuse": [
+      "santander.cl",
+      "banca"
+    ],
+    "reintento": [
+      "respondió 503",
+      2,
+      3
+    ],
+    "fallo": [
+      "santander.cl",
+      "error de red"
+    ],
+    "falta_sector": [
+      "santander.cl"
+    ],
+    "dominio_invalido": [
+      "127.0.0.1"
+    ],
+    "limite": [
+      20
+    ],
+    "limite_casa": [],
+    "ayuda": [
+      "medicion-rosetta@nyx5.com"
+    ],
+    "verificar_inicio": [
+      {
+        "dominio": "santander.cl",
+        "sector": "banca",
+        "nombre": "_qready.santander.cl",
+        "tipo": "TXT",
+        "valor": "qready-verificacion=abc",
+        "caduca": "2026-11-27 12:00"
+      }
+    ],
+    "verificar_hecho": [
+      "santander.cl"
+    ],
+    "verificar_ausente": [
+      "santander.cl"
+    ],
+    "verificar_sin_token": [
+      "santander.cl"
+    ],
+    "verificar_fallo": [
+      "santander.cl",
+      "Demasiados pedidos seguidos. Espere un minuto."
+    ],
+    "resultado": [
+      {
+        "dominio": "santander.cl",
+        "sector": "banca",
+        "letra": "B",
+        "versionNota": "QREADY-NOTA-2.1",
+        "qex": 61,
+        "versionQex": "QEX-1.2",
+        "fichaUrl": "https://rosettaquantum.com/es/q-ready/medicion/?dominio=santander.cl"
+      }
+    ],
+    "notaria": [
+      {
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "url": "https://nyx5.com/notaria/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sello": {
+          "id": "00000000-0000-4000-8000-000000000000",
+          "at": "2026-11-27T12:00:00.000Z",
+          "house": "nyx5.com"
+        }
+      }
+    ]
+  },
+  "textos": {
+    "es": {
+      "acuse": "Recibido. Estoy midiendo santander.cl (sector banca) con el instrumento de Rosetta, desde afuera y sin instalar nada. La ficha llega en este mismo hilo, sellada en la notaría de la casa.",
+      "reintento": "El instrumento de Rosetta no respondió (respondió 503). Reintento en menos de un minuto (intento 2 de 3).",
+      "fallo": "No pude medir santander.cl: error de red. No quedó nada sellado. Puedes volver a pedirlo en unos minutos.",
+      "falta_sector": "Para medir santander.cl me falta el sector (con él calculo el QEX y la nota). Sectores: banca, educacion, energia, fintech, gobierno, mineria, prevision, retail, salud_clinica, salud_isapre, seguros, telecom. Ejemplo: «mide santander.cl, sector banca».",
+      "dominio_invalido": "«127.0.0.1» no es un dominio público que pueda medir. Escríbelo así: ejemplo.cl.",
+      "limite": "Llegaste al tope de 20 mediciones por día para tu dirección. Vuelve a pedirlo mañana (UTC).",
+      "limite_casa": "La casa llegó a su tope diario de mediciones. Vuelve a pedirlo mañana (UTC).",
+      "ayuda": "Soy medicion-rosetta@nyx5.com, el medidor automático de Rosetta. Sé hacer dos cosas:\n1. Medir la exposición post-cuántica de un dominio, desde afuera: «mide ejemplo.cl, sector banca». Te devuelvo la ficha (nota Q-Ready, QEX y versión) en un mensaje firmado, y dejo el resultado sellado en la notaría de la casa.\n2. Iniciar la verificación Q-Ready de un dominio y darte el registro TXT que su dueño publica: «inicia la verificación de ejemplo.cl, sector banca». Después: «comprueba la verificación de ejemplo.cl».\nSectores: banca, educacion, energia, fintech, gobierno, mineria, prevision, retail, salud_clinica, salud_isapre, seguros, telecom.",
+      "verificar_inicio": "Inicié la verificación Q-Ready de santander.cl (sector banca). Para probar que el dominio es suyo, quien administra su DNS publica este registro:\nnombre: _qready.santander.cl\ntipo: TXT\nvalor: qready-verificacion=abc\nEl pedido caduca el 2026-11-27 12:00 UTC si el registro no aparece. Cuando esté publicado, pídeme «comprueba la verificación de santander.cl». La nota no se publica salvo que el dueño lo elija.",
+      "verificar_hecho": "Comprobé santander.cl: el registro TXT está publicado y el dominio quedó verificado. Desde hoy Rosetta lo mide cada día.",
+      "verificar_ausente": "Comprobé santander.cl: el registro TXT todavía no aparece en su DNS (puede tardar unos minutos en propagarse). Vuelve a pedírmelo en un rato.",
+      "verificar_sin_token": "No tengo una verificación iniciada por ti para santander.cl. Pídeme primero «inicia la verificación de santander.cl, sector banca» (con su sector).",
+      "verificar_fallo": "No pude completar la verificación de santander.cl: Demasiados pedidos seguidos. Espere un minuto..",
+      "resultado": "Medición de santander.cl · sector banca\nNota Q-Ready: B (QREADY-NOTA-2.1) · QEX 61/100 (QEX-1.2)\nFicha en la web: https://rosettaquantum.com/es/q-ready/medicion/?dominio=santander.cl",
+      "notaria": "## Notaría\nEsta medición quedó sellada en el libro de la casa. sha256 del acta: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nSello 00000000-0000-4000-8000-000000000000 · 2026-11-27T12:00:00.000Z · firmado por nyx5.com. Verificación pública: https://nyx5.com/notaria/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nEl acta es el JSON de abajo: su sha256 en forma canónica (claves ordenadas, sin espacios) es el hash sellado. El sello va firmado con la llave de la casa y se verifica con su tarjeta.",
+      "sin_sello": "sello en curso"
+    },
+    "en": {
+      "acuse": "Received. I am measuring santander.cl (sector banca) with Rosetta's instrument, from the outside and without installing anything. The sheet arrives in this same thread, sealed in the house notary.",
+      "reintento": "Rosetta's instrument did not answer (respondió 503). Retrying in under a minute (attempt 2 of 3).",
+      "fallo": "I could not measure santander.cl: error de red. Nothing was sealed. You can ask again in a few minutes.",
+      "falta_sector": "To measure santander.cl I need the sector (it sets the QEX and the grade). Sectors: banca, educacion, energia, fintech, gobierno, mineria, prevision, retail, salud_clinica, salud_isapre, seguros, telecom. Example: \"measure santander.cl, sector banca\".",
+      "dominio_invalido": "\"127.0.0.1\" is not a public domain I can measure. Write it like this: example.com.",
+      "limite": "You reached the limit of 20 measurements per day for your address. Ask again tomorrow (UTC).",
+      "limite_casa": "The house reached its daily limit of measurements. Ask again tomorrow (UTC).",
+      "ayuda": "I am medicion-rosetta@nyx5.com, Rosetta's automatic measurer. I do two things:\n1. Measure the post-quantum exposure of a domain, from the outside: \"measure example.com, sector banca\". You get the sheet (Q-Ready grade, QEX and version) in a signed message, and the result is sealed in the house notary.\n2. Start the Q-Ready verification of a domain and give you the TXT record its owner publishes: \"start the verification of example.com, sector banca\". Then: \"check the verification of example.com\".\nSectors: banca, educacion, energia, fintech, gobierno, mineria, prevision, retail, salud_clinica, salud_isapre, seguros, telecom.",
+      "verificar_inicio": "I started the Q-Ready verification of santander.cl (sector banca). To prove the domain is theirs, whoever runs its DNS publishes this record:\nname: _qready.santander.cl\ntype: TXT\nvalue: qready-verificacion=abc\nThe request expires on 2026-11-27 12:00 UTC if the record does not appear. Once it is published, ask me \"check the verification of santander.cl\". The grade is not published unless the owner chooses to.",
+      "verificar_hecho": "I checked santander.cl: the TXT record is published and the domain is now verified. From today Rosetta measures it daily.",
+      "verificar_ausente": "I checked santander.cl: the TXT record does not appear in its DNS yet (it can take a few minutes to propagate). Ask me again in a while.",
+      "verificar_sin_token": "I have no verification started by you for santander.cl. First ask me \"start the verification of santander.cl, sector banca\" (with its sector).",
+      "verificar_fallo": "I could not complete the verification of santander.cl: Demasiados pedidos seguidos. Espere un minuto..",
+      "resultado": "Measurement of santander.cl · sector banca\nQ-Ready grade: B (QREADY-NOTA-2.1) · QEX 61/100 (QEX-1.2)\nSheet on the web: https://rosettaquantum.com/es/q-ready/medicion/?dominio=santander.cl",
+      "notaria": "## Notary\nThis measurement was sealed in the house ledger. sha256 of the record: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nSeal 00000000-0000-4000-8000-000000000000 · 2026-11-27T12:00:00.000Z · signed by nyx5.com. Public check: https://nyx5.com/notaria/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nThe record is the JSON below: its sha256 in canonical form (sorted keys, no whitespace) is the sealed hash. The seal is signed with the house key and checks against its card.",
+      "sin_sello": "seal in progress"
+    }
+  }
+}

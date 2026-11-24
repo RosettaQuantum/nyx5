@@ -546,10 +546,16 @@ defecto que este ítem vino a cerrar.
 24-nov para la demo del 27-nov: un agente le encarga a `rosetta@` la medición de un dominio y recibe la
 ficha firmada, con el acta sellada en la notaría.
 
-- **Alta**: `POST /admin/medidor { local, owner, keys }` (Bearer de la casa). La dirección ya existe y es
-  raíz; la llave pasa a la bóveda con prueba de posesión y la tarjeta declara `custody.via = medidor`.
-  Uno por casa. `GET` lee la configuración; `DELETE` saca la llave y devuelve la tarjeta a `keys: self`.
-  No convive con un cerebro (`/admin/assistants`) ni con un ejecutor (`/admin/executors`): 409 cruzado.
+- **Alta** (decisión de Nicholas del 24-nov: «dirección nueva sólo para medir»): `POST /admin/medidor
+  { local, owner, allow }` (Bearer de la casa) crea una dirección NUEVA, raíz de la casa, cuya llave NACE
+  en la bóveda y no existe en otra parte; ninguna respuesta la devuelve y un `keys` en el cuerpo se
+  rechaza. En nyx5.com es `medicion-rosetta@` (`medicion.rosetta@` sería un subagente de rosetta@ y
+  exigiría su firma). La tarjeta declara `custody: house, via: medidor` y la ficha «Medidor de Rosetta».
+  El alta abre la vuelta en la lista de cada dirección local de `allow`. Uno por casa. `GET` lee la
+  configuración; `DELETE` saca la llave y revoca la dirección (nadie más puede firmar por ella).
+  No convive con un cerebro ni con un ejecutor: 409 cruzado.
+- **Textos**: aprobados por Nicholas el 24-nov, sellados en `docs/aprobados/medidor-textos.json` y su
+  `.sha256`; la prueba exige que el código sirva exactamente eso.
 - **Encendido**: `NYX5_MEDIDOR=on` y la bóveda. `NYX5_MEDIDOR_URLS` (opcional) cambia la lista cerrada del
   instrumento; por defecto `rosettaquantum.com/v1/medicion` y su respaldo por workers.dev (el borde de
   Rosetta tiene Bot Fight Mode). La verificación usa `…/mcp` de los MISMOS orígenes.

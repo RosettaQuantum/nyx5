@@ -908,3 +908,8 @@ Lo que hay que saber para no romperlo:
   con `\w`, «münchen.de» medía «nchen.de» y «sántander.cl» medía `santander.cl`. Se pide punycode.
 - **NO cubre**: un asistente que cite la ficha con otras palabras puede volver a pedirla (lo acota el cupo
   de 20 por remitente y día y 100 por casa); el cupo cuenta pedidos, no mediciones exitosas.
+- **Corregido el mismo día por decisión de Nicholas**: la llave de rosetta@ NO sale de su Mac. El medidor
+  es `medicion-rosetta@nyx5.com`, una dirección nueva cuya llave nace en la bóveda (`generateKeys` dentro
+  de `_adminMedidor`); no hay puerta para importar una llave. `medicion.rosetta` no sirve: la forma
+  `<algo>.<agente>` es la de un subagente y exige la firma del padre. Los textos quedaron sellados en
+  `docs/aprobados/medidor-textos.json` (+ `.sha256`), con prueba y mutación.
