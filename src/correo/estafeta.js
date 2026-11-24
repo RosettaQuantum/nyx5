@@ -1512,6 +1512,12 @@ export class Estafeta {
     // La purga de lo vencido es limpieza: si falla (una casa cuya base aún no tiene la tabla 0006),
     // no puede tumbar el ciclo que entrega el correo de todos.
     try { await this.store.kvPurge?.(now()); } catch (e) { this.log(`kv: no se pudo purgar lo vencido: ${e.message}`); }
+    // El medidor va justo DESPUÉS de entregar la cola y ANTES del índice, verifica y los asistentes.
+    // Medido en producción el 24-nov: al final del tick, el de la petición no llegaba nunca al medidor
+    // (el rastreo del índice y lo demás se comían los 30 s del edge) y el reloj llegaba 25-40 s tarde.
+    // Tampoco va en un waitUntil aparte: probado en workerd, corría en paralelo con la entrega de la
+    // cola y no veía el pedido que esa misma petición acababa de dejar.
+    if (this.medidor.enabled) { try { await atenderMedidor(this, { programado }); } catch (e) { this.log(`medidor: ${e.message}`); } }
     if (this.index.enabled) await this._indexCrawlIfDue();
     if (this.verifica.enabled) await this._verificarPendientes();
     // Sólo desde el reloj programado: recorre la tabla de contratos, y el tick que sigue a cada
@@ -1520,9 +1526,6 @@ export class Estafeta {
     if (programado) { try { await atenderAsistentes(this); } catch (e) { this.log(`asistentes: ${e.message}`); } }
     if (programado && this.ideas.enabled) { try { await atenderIdeas(this); } catch (e) { this.log(`ideas: ${e.message}`); } }
     if (programado) { try { await atenderEjecutores(this); } catch (e) { this.log(`ejecutores: ${e.message}`); } }
-    // El medidor corre también en el tick de una petición: una medición rápida (3-15 s) contesta en
-    // segundos; si no alcanza, el pedido queda tomado y lo termina el reloj (ver medidor.js).
-    if (this.medidor.enabled) { try { await atenderMedidor(this, { programado }); } catch (e) { this.log(`medidor: ${e.message}`); } }
     // Retención de los adjuntos (NX-413): 30 días, o 7 desde que el último destinatario lo bajó.
     // Es limpieza, como la purga del kv: si falla no puede tumbar la entrega del correo de todos.
     if (programado && this.objetos) { try { await limpiarAdjuntos(this, { nowMs: now() }); } catch (e) { this.log(`adjuntos: ${e.message}`); } }
