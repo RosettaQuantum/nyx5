@@ -1324,7 +1324,23 @@ export class Estafeta {
   // que es público porque por ahí entra la federación. Ahora los aplican las dos puertas y el Libro.
   _limiteDeAlcance(env, scope) {
     if (!scope) return null;
-    if (scope.types?.length && !scope.types.includes(env.type)) return `agente delegado: solo puede enviar type ${scope.types.join('|')}`;
+    // Un ENCARGO no es comercio: `src/libro/encargos.js` no llama al Libro ni una vez y hay una
+    // prueba que lo exige, asi que no mueve dinero ni por error. La excepcion se calcula UNA vez y
+    // vale para las dos puertas de abajo: pide las TRES cosas —tipo `task`, dirigido COMPLETO a
+    // `encargos@`, y declarando el media del encargo—, asi que el `task` con el que se pide un
+    // servicio pagado sigue cerrado.
+    // Nacio de un defecto medido el 23-nov-2026: `code.nicholas@` —el agente que HACE el trabajo—
+    // tiene `types: [message, result, receipt]` y no podia tomar ni mover un encargo. El arreglo
+    // anterior abrio la puerta solo para `messages_only` y dejo fuera la lista de tipos explicita,
+    // que es la que lleva medio equipo. El sistema de estados quedaba construido y sin nadie que
+    // pudiera moverlo.
+    // NO cubre: hoy un principal no tiene como prohibirle los encargos a su delegado. Un alcance
+    // limita AUTORIDAD —gastar, vender, a quien escribir— y un encargo no es autoridad sobre nada
+    // suyo, es un registro. Si alguna vez hace falta prohibirlo, que sea vocabulario escrito.
+    const esEncargo = env.type === 'task'
+      && env.to.every((t) => parseAddress(t).local === 'encargos')
+      && env.content?.media === MEDIA_ENCARGO;
+    if (!esEncargo && scope.types?.length && !scope.types.includes(env.type)) return `agente delegado: solo puede enviar type ${scope.types.join('|')} (o un encargo a encargos@)`;
     if (scope.to_domains?.length && !env.to.every((t) => scope.to_domains.includes(parseAddress(t).domain))) return `agente delegado: solo puede escribir a ${scope.to_domains.join(', ')}`;
     // Sólo mensajes: la dirección que guarda la casa para el Claude de un teléfono no toca el Libro
     // ni paga estampillas. Aunque el puente no le ofrezca esas herramientas, la casa lo niega igual.
@@ -1337,9 +1353,6 @@ export class Estafeta {
       // La excepcion es ESTRECHA a proposito: el tipo `task` sigue prohibido salvo que vaya SOLO a
       // `encargos@` y declare el media del encargo. Un `task` suelto es el tipo con el que se PIDE
       // un servicio pagado (el camino pedido -> cotizacion -> aceptar), y ese queda cerrado.
-      const esEncargo = env.type === 'task'
-        && env.to.every((t) => parseAddress(t).local === 'encargos')
-        && env.content?.media === MEDIA_ENCARGO;
       if (!esEncargo && !['message', 'result', 'receipt'].includes(env.type)) return 'this is a messages-only address: it can send message, result or receipt, or a task to encargos@ (work, which never moves money)';
       if (env.to.some((t) => parseAddress(t).local === 'libro')) return 'this is a messages-only address: it cannot operate the ledger';
       if (env.stamp) return 'this is a messages-only address: it cannot pay stamps';
