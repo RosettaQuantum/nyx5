@@ -62,6 +62,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { Estafeta } from '../src/correo/estafeta.js';
 import { Agent, topeDeRed, esFallaDeRed } from '../src/correo/agente.js';
+import { SENALES } from '../src/libro/senal.js';
 import { Resolver } from '../src/correo/resolver.js';
 import { runMcpServer } from '../src/puentes/mcp.js';
 import { recoger, responder } from '../src/puentes/ejecutor.js';
@@ -84,7 +85,7 @@ const OPCIONES = {
   parent: { type: 'string' }, state: { type: 'string' }, detail: { type: 'string' },
   domain: { type: 'string' }, port: { type: 'string' }, data: { type: 'string' }, 'admin-token': { type: 'string' }, 'public-url': { type: 'string' },
   'require-relay': { type: 'boolean' }, hosts: { type: 'string' }, registration: { type: 'string' }, welcome: { type: 'string' }, fee: { type: 'string' },
-  invite: { type: 'string' }, uses: { type: 'string' }, expires: { type: 'string' }, note: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' },
+  invite: { type: 'string' }, uses: { type: 'string' }, expires: { type: 'string' }, note: { type: 'string' }, reason: { type: 'string' }, evidence: { type: 'string' }, verdict: { type: 'string' }, url: { type: 'string' }, summary: { type: 'string' }, role: { type: 'string' }, capability: { type: 'string' }, accepts: { type: 'string' }, q: { type: 'string' },
   address: { type: 'string' }, estafeta: { type: 'string' }, out: { type: 'string' }, agent: { type: 'string' },
   policy: { type: 'string' }, allow: { type: 'string' }, 'pow-bits': { type: 'string' }, webhook: { type: 'string' }, mcp: { type: 'string' }, a2a: { type: 'string' },
   // `--text` es alias de `--body`: es el nombre que sale solo al escribir el comando, y
@@ -413,7 +414,12 @@ try {
     case 'send': {
       const a = await loadAgent();
       const body = o.json ? JSON.parse(need('body')) : need('body');
-      const r = await a.send({ to: need('to').split(',').map((s) => s.trim()), body, type: o.type || 'message', encrypt: !o.plain, thread: o.thread, inReplyTo: o['reply-to'], receipt: o.receipt });
+      // `project`, `role` y `summary` viajan en el sobre desde hace meses y la CLI no los escribia:
+      // `--project` se podia pasar y se ignoraba en silencio, y `--summary` ni existia. El resumen
+      // es la UNICA linea en claro del sobre — es la que la casa pone en el asunto del aviso por
+      // correo, o sea lo que su dueno lee en el telefono para decidir sin abrir nada. Sin el, los
+      // avisos llegaban sin decir de que se trataba. Medido el 24-nov-2026.
+      const r = await a.send({ to: need('to').split(',').map((s) => s.trim()), body, type: o.type || 'message', encrypt: !o.plain, thread: o.thread, inReplyTo: o['reply-to'], receipt: o.receipt, project: o.project, role: o.role, summary: o.summary });
       print({ id: r.id, jobs: r.jobs, encrypted: !!r.envelope.encrypted });
       break;
     }
@@ -504,8 +510,29 @@ try {
       break;
     }
     case 'encargo': {
+      // Lo barato ANTES de lo caro: que falte `--kind` se sabe sin leer una llave ni tocar la red.
+      // Comprobarlo despues de `loadAgent()` hacia que el error visible fuera el de la llave, y el
+      // verdadero no se viera nunca.
+      const op = need('op');
+      if ((op === 'signal' || op === 'senalar') && !o.kind) {
+        console.error(`signal needs --kind, one of: ${SENALES.join(', ')}`);
+        console.error('example: nyx5 encargo --op signal --id <encargo> --kind progress --reason "what is holding it"');
+        process.exit(2);
+      }
       const a = await loadAgent();
-      print(await a.encargoPaso(o.house || a.domain, need('op'), need('id'), { note: o.note }));
+      const casa = o.house || a.domain;
+      // `signal` NO es un paso y no se manda por `encargoPaso`: pide `kind` (vocabulario CERRADO) y
+      // `reason`, y la CLI los tiraba. El comando salia, la casa lo rechazaba con `kind must be one
+      // of: ...` y el que lo corrio se enteraba por un rebote del postmaster, minutos despues. Una
+      // superficie que ofrece una op y no manda lo que esa op exige es una promesa publicada.
+      // La lista sale de `SENALES`, no de la memoria de nadie: a mano envejece.
+      if (op === 'signal' || op === 'senalar') {
+        print(await a.senalarEncargo(casa, need('id'), o.kind, o.reason ?? o.note ?? null));
+        break;
+      }
+      // Y los pasos llevan la EVIDENCIA, que la casa ya sabia leer y ninguna superficie podia
+      // escribir: una entrega sin con que comprobarla obliga a creerle al que entrega.
+      print(await a.encargoPaso(casa, op, need('id'), { note: o.note, evidence_sha256: o.evidence, url: o.url, verdict: o.verdict }));
       break;
     }
 
