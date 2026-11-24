@@ -29,6 +29,32 @@ export const topeDeRed = () => {
 // Si NO se llego a la casa. Se mira el `name` y el texto porque `fetch` de Node envuelve la causa
 // real: un SYN perdido llega como un escueto `fetch failed`, sin decir a quien no se llego ni que
 // reintentar suele bastar. Quien lo lee merece saber las dos cosas.
+// Los dos tics. Decision de Nicholas el 24-nov-2026, con sus palabras: «cada mensaje tiene dos
+// tics, el primero cuando sale y el segundo cuando lo recibe el tercero». El acuse de entrega ya
+// existia entero —vuelve firmado por la casa, con el hash del sobre original, y funciona tambien
+// dentro de la misma casa (lo comprobe: creia que no y estaba equivocado)— pero habia que PEDIRLO
+// sobre por sobre, asi que no lo pedia nadie y nadie veia un tic nunca.
+//
+// Ahora es lo normal. Dos excepciones, y las dos por una razon, no por gusto:
+//   · un ACUSE no se acusa: seria un ida y vuelta infinito;
+//   · una direccion de SISTEMA ya contesta sola —el Libro manda su recibo, encargos@ manda el
+//     aviso, verifica@ su veredicto—, asi que pedirle ademas un acuse es dos respuestas para lo
+//     mismo y el buzon se llena de ruido que nadie lee.
+// Para apagarlo en un envio: `receipt: 'none'` (o `false`).
+export const SISTEMA = new Set(['postmaster', 'libro', 'verifica', 'tareas', 'encargos', 'casa', 'admin', 'qa', 'ideas', 'historial', 'indice', 'estafeta', 'nyx5']);
+export const acuseDe = (receipt, type, destinos, yo) => {
+  if (receipt === false || receipt === 'none' || receipt === null) return undefined;
+  if (receipt) return receipt;                       // lo que el que llama pidio, manda
+  if (type === 'receipt') return undefined;
+  // Un sobre a UNO MISMO no se acusa. `recordar()` es eso: un recordatorio que el agente se deja
+  // para despertarse mas tarde, y un acuse de que se lo entrego a si mismo no le dice nada a nadie
+  // — solo le pone un sobre de mas en el buzon, que para una direccion adoptada es un turno que
+  // mirar. Lo encontro la suite de `vivos`: un recordatorio dejaba dos sobres donde habia uno.
+  if (destinos.length && destinos.every((t) => String(t).toLowerCase() === String(yo).toLowerCase())) return undefined;
+  try { if (destinos.some((t) => SISTEMA.has(parseAddress(t).local))) return undefined; } catch { /* una direccion rara se resuelve mas abajo */ }
+  return 'delivered';
+};
+
 export const esFallaDeRed = (e) => e?.name === 'TimeoutError'
   || /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|socket hang up|network/i.test(e?.message || '');
 
@@ -147,7 +173,7 @@ export class Agent {
     const base = {
       nyx5: '1', id, from: this.address, to: recipients, created: iso(),
       expires: expires ?? null, deliver_after: deliverAfter ?? undefined, thread: thread ?? null, in_reply_to: inReplyTo ?? null, type,
-      extensions, receipt,
+      extensions, receipt: acuseDe(receipt, type, recipients, this.address),
     };
     const content = { media: media || (typeof body === 'string' ? 'text/plain' : 'application/json'), body };
 
