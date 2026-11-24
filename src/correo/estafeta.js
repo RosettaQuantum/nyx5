@@ -29,7 +29,7 @@ import { contratoPublico, ACP } from '../libro/contratos.js';
 import { estadoDeCuenta, csvDe, nombreCsv } from '../libro/estado.js';
 import { selloPublico } from '../libro/notaria.js';
 import { Tareas } from '../libro/tareas.js';
-import { MEDIA_ENCARGO, PASOS, aplicarPaso, crearEncargo, senalarEncargo, sinPlata, tablero, visiblePara, visibleParaAlguna } from '../libro/encargos.js';
+import { MEDIA_ENCARGO, MEDIA_AVISO_ENCARGO, PASOS, aplicarPaso, crearEncargo, senalarEncargo, sinPlata, tablero, visiblePara, visibleParaAlguna } from '../libro/encargos.js';
 import { vista } from '../libro/vista.js';
 import { datosInforme, datosEmbudo, informeHtml } from '../libro/informe.js';
 import { APP_HTML } from '../plataformas/app-html.js';
@@ -1564,6 +1564,48 @@ export class Estafeta {
     return env;
   }
 
+  // El aviso de un encargo: un sobre firmado por la casa al buzon de la CONTRAPARTE.
+  //
+  // Nacio de un defecto medido el 24-nov-2026: un encargo se anotaba en su tabla y el asignado no
+  // se enteraba NUNCA. No faltaba un timbre —la casa ya tiene cinco: el buzon, la espera larga, el
+  // webhook, el asistente adoptado y el ejecutor— y los cinco cuelgan de lo mismo: que llegue un
+  // sobre al buzon. El encargo iba a `encargos@`, se guardaba, y no tocaba el buzon de nadie, asi
+  // que no tiraba del cable. Un sobre, y los cinco empiezan a funcionar sin maquina nueva.
+  //
+  // A LA CONTRAPARTE, no «a todos»: quien acaba de mover el encargo ya sabe lo que hizo, y avisarle
+  // convierte su propio buzon en ruido. Si el que actua es el asignado, se avisa a quien pidio; si
+  // es quien pidio, al asignado. Sin asignado todavia no hay a quien avisar.
+  //
+  // El cuerpo lleva lo que hace falta para ACTUAR sin este chat —id, estado, concepto, plazo— y NO
+  // lleva el `detail`: puede ser largo, ya vive en el encargo, y un aviso que repite el encargo
+  // entero es dos copias que se pueden contradecir.
+  //
+  // Va en CLARO y firmado por la casa, como el resto de los avisos del postmaster: el encargo ya
+  // viaja en claro hasta `encargos@` (la casa tiene que leerlo para ejecutarlo, invariante 8), asi
+  // que el aviso no expone nada que la casa no tuviera. Lo secreto va en un mensaje entre partes.
+  async _avisarEncargo(e, { por, paso }) {
+    try {
+      const otra = String(por) === String(e.assignee) ? e.from : e.assignee;
+      if (!otra || String(otra) === String(por)) return;
+      await this._systemSend('encargos', [otra], {
+        type: 'message',
+        thread: e.id,
+        content: {
+          media: MEDIA_AVISO_ENCARGO,
+          body: {
+            encargo: e.id, step: paso, state: e.state, by: String(por),
+            concept: e.concept, from: e.from, assignee: e.assignee,
+            due: e.due || null, project: e.project || null,
+          },
+        },
+      });
+    } catch (err) {
+      // Un aviso que falla NO puede tumbar el paso: el encargo ya se movio y la verdad esta en la
+      // tabla. Se anota y se sigue; lo contrario seria perder trabajo hecho por un timbre.
+      this.log(`aviso de encargo ${e?.id}: ${err.message}`);
+    }
+  }
+
   // ----- tareas@: la casa toma el lado comprador de una tarea sembrada -----
   // El agente manda su cotización firmada; la casa la compara contra el catálogo publicado y,
   // si coincide y hay cupo, la acepta operando el Libro como cualquier comprador. La casa NO
@@ -1640,6 +1682,7 @@ export class Estafeta {
           return { ok: true, code: 200, result: { encargo: guardado, duplicate: true } };
         }
         await this._evento('encargo_creado', env.from, { encargo: e.id, assignee: e.assignee, parent: e.parent_id, depth: e.depth });
+        await this._avisarEncargo(e, { por: env.from, paso: 'crear' });
         return { ok: true, code: 201, result: { encargo: e } };
       }
       // La senal no es un paso: no mueve el estado (salvo auth-required, que en A2A ES un estado)
@@ -1651,6 +1694,7 @@ export class Estafeta {
         const nuevo = senalarEncargo(actual, { kind: b.kind, reason: b.reason || null, por: env.from });
         if (!await this.store.encargoPaso(nuevo, actual.rev)) return { ok: false, code: 409, reason: `${b.encargo} moved while you were deciding; read it again` };
         await this._evento('encargo_senal', env.from, { encargo: nuevo.id, kind: b.kind, state: nuevo.state });
+        await this._avisarEncargo(nuevo, { por: env.from, paso: `signal:${b.kind}` });
         return { ok: true, code: 200, result: { encargo: nuevo } };
       }
       if (!PASOS[op]) return { ok: false, code: 400, reason: `unknown op ${op}; the steps are: ${Object.keys(PASOS).join(', ')}, signal` };
@@ -1662,6 +1706,7 @@ export class Estafeta {
       // mismo cuerpo volvería a chocar. El que escribe tiene que volver a leer y decidir.
       if (!await this.store.encargoPaso(nuevo, actual.rev)) return { ok: false, code: 409, reason: `${b.encargo} moved while you were deciding (it is ${(await this.store.encargoGet(String(b.encargo)))?.state}); read it again` };
       await this._evento('encargo_paso', env.from, { encargo: nuevo.id, paso: op, state: nuevo.state });
+      await this._avisarEncargo(nuevo, { por: env.from, paso: op });
       return { ok: true, code: 200, result: { encargo: nuevo } };
     } catch (e) {
       // LibroError trae el código del dominio (400 forma, 403 autoridad, 409 estado); cualquier
