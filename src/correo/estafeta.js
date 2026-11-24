@@ -22,7 +22,7 @@ import { FileStore } from '../nucleo/almacen.js';
 import { ObjetosDisco } from '../nucleo/objetos.js';
 import { Resolver, parseAddress } from './resolver.js';
 import { validateEnvelope, applyInboxPolicy, applyEmailPolicy, RateLimiter, RateLimiterDurable, proyectoDe, resumenDe, nombreDeProyecto, validarPerfil, usdSinBilletera } from './politica.js';
-import { generateSigningKeys, signObject, verifyObject, signBytes, verifyBytes, canonical, uuid, unb64u, sha256hex } from '../nucleo/crypto.js';
+import { generateKeys, generateSigningKeys, signObject, verifyObject, signBytes, verifyBytes, canonical, uuid, unb64u, sha256hex } from '../nucleo/crypto.js';
 import { Libro, MEDIA, LibroError } from '../libro/libro.js';
 import { veredicto, pruebasDe, pruebasDisponibles } from '../libro/verifica.js';
 import { contratoPublico, ACP } from '../libro/contratos.js';
@@ -48,7 +48,7 @@ import { Agent } from './agente.js';
 import { eventoDeCobro } from './cobro.js';
 import { atenderAsistentes, gastoDe, PRECIOS, MEDIA_GATE } from './asistente.js';
 import { atenderIdeas, paginaDeIdeas, puertaIdeas, LOCAL as IDEAS_LOCAL, VIA as IDEAS_VIA } from './ideas.js';
-import { atenderMedidor, URLS_POR_DEFECTO as MEDIDOR_URLS, NS as MEDIDOR_NS, VIA as MEDIDOR_VIA } from './medidor.js';
+import { atenderMedidor, URLS_POR_DEFECTO as MEDIDOR_URLS, NS as MEDIDOR_NS, VIA as MEDIDOR_VIA, PERFIL as MEDIDOR_PERFIL } from './medidor.js';
 import { subirAdjunto, bajarAdjunto, borrarAdjunto, limpiarAdjuntos, capacidadAdjuntos } from './adjuntos.js';
 import { atenderEjecutores, despachar as despacharCi, despachable, validarConfig as validarCi, urlDe as urlCi, PROVEEDORES as CI_PROVEEDORES, INTENTOS as CI_INTENTOS, CUPO_DESPACHOS_DIA } from './ci.js';
 import { validarFiltros, puntajeDe, precioMinimo, FILTROS } from './indice.js';
@@ -1106,43 +1106,67 @@ export class Estafeta {
     if (rx.method === 'DELETE') {
       if (!cfg) return { status: 404, body: { reason: 'this house has no measurer' } };
       const rec = await this.store.getAgent(cfg.local);
-      if (rec && rec.custody?.via === MEDIDOR_VIA) await reCertificar(cfg.local, rec, { keys: 'self', via: null, ended: iso(), was: MEDIDOR_VIA });
+      // La llave nació en la bóveda y no existe en otra parte: al sacarla, la dirección queda sin
+      // quien firme por ella. Se revoca para que nadie espere respuesta de una dirección muda.
+      if (rec && rec.custody?.via === MEDIDOR_VIA) await reCertificar(cfg.local, { ...rec, valid_until: iso(), revoked: { at: iso(), by: `casa@${this.domain}` } }, { keys: 'none', via: null, ended: iso(), was: MEDIDOR_VIA });
       await this.store.kvDelete?.('boveda', cfg.local);
       await this.store.kvDelete?.(MEDIDOR_NS, '_config');
       await this._evento('measurer_removed', `${cfg.local}@${this.domain}`, {});
       return { status: 200, body: { address: `${cfg.local}@${this.domain}`, removed: true } };
     }
     if (rx.method !== 'POST') return { status: 405, body: { reason: 'GET, POST or DELETE' } };
+    // La llave NACE aquí (decisión de Nicholas del 24-nov: «dirección nueva sólo para medir»; la llave
+    // de rosetta@ no sale de su Mac). No hay puerta para importar una llave: un `keys` en el cuerpo se
+    // rechaza por nombre. La dirección es nueva, raíz de la casa, y su llave sólo existe sellada en la
+    // bóveda: ninguna respuesta la devuelve.
+    if (b.keys !== undefined) return { status: 400, body: { reason: 'the measurer key is born in the vault: do not send keys' } };
     const l = String(b.local || cfg?.local || '').toLowerCase();
     if (!Estafeta.validLocal(l)) return { status: 400, body: { reason: 'local must be a valid address name' } };
     if (cfg && cfg.local !== l) return { status: 409, body: { reason: `this house already has a measurer (${cfg.local}@${this.domain}): remove it first with DELETE /admin/medidor` } };
-    if (this.isSystem(l)) return { status: 409, body: { reason: `${l}@ is a protocol address` } };
-    const rec = await this.store.getAgent(l);
-    if (!rec || rec.revoked) return { status: 404, body: { reason: `${l}@${this.domain} does not exist: the measurer is an address that is already alive` } };
-    if (l.startsWith('g.') || rec.group) return { status: 409, body: { reason: `${l}@${this.domain} is a group` } };
-    if (rec.delegation) return { status: 409, body: { reason: `${l}@${this.domain} is a delegated address: the measurer must be a root address` } };
-    // Un sobre lo contesta UNO: ni un cerebro ni un ejecutor ya puestos en esa dirección.
-    if (await this.store.kvGet('asistente', l)) return { status: 409, body: { reason: `${l}@${this.domain} already has an assistant brain: remove it with DELETE /admin/assistants/${l}` } };
-    if (await this.store.kvGet('ci', l)) return { status: 409, body: { reason: `${l}@${this.domain} already has an executor: remove it with DELETE /admin/executors/${l}` } };
+    if (this.isSystem(l) || Estafeta.RESERVED.has(l)) return { status: 409, body: { reason: `${l}@ is a protocol address` } };
+    if (l.startsWith('g.')) return { status: 409, body: { reason: 'names starting with g. are groups' } };
     let owner = cfg?.owner || null;
     if (b.owner != null) { try { const p = parseAddress(String(b.owner)); owner = `${p.local}@${p.domain}`; } catch { return { status: 400, body: { reason: 'owner must be an address' } }; } }
+    let allow = cfg?.allow || null;
+    if (b.allow !== undefined) {
+      if (!Array.isArray(b.allow) || !b.allow.length || b.allow.length > 20) return { status: 400, body: { reason: 'allow must list 1 to 20 addresses' } };
+      allow = [];
+      for (const x of b.allow) { try { const p = parseAddress(String(x)); const d = `${p.local}@${p.domain}`; if (!allow.includes(d)) allow.push(d); } catch { return { status: 400, body: { reason: `allow: ${String(x).slice(0, 80)} is not an address` } }; } }
+    }
+    if (!allow) return { status: 400, body: { reason: 'allow is required: who may ask the measurer' } };
     const enabled = b.enabled === undefined ? (cfg ? cfg.enabled : true) : b.enabled === true;
     const since = iso();
-    if (rec.custody?.via !== MEDIDOR_VIA) {
-      if (rec.custody?.keys === 'house') return { status: 409, body: { reason: `${l}@${this.domain} is already under house custody via ${rec.custody.via}` } };
-      const k = b.keys || {};
-      if (k.sig !== rec.sig || k.enc !== rec.enc || !k.sigPriv || !k.encPriv) return { status: 400, body: { reason: 'keys do not match the card of that address' } };
-      // Prueba de posesión (invariante 9): la privada firma y la pública de la tarjeta verifica.
-      let posee = false; try { posee = verifyObject(signObject({ nyx5: '1', prueba: l }, k), k.sig); } catch { posee = false; }
-      if (!posee) return { status: 400, body: { reason: 'sigPriv does not match sig' } };
+    const propia = `${l}@${this.domain}`;
+    const rec = await this.store.getAgent(l);
+    if (rec && rec.custody?.via !== MEDIDOR_VIA) return { status: 409, body: { reason: `${propia} already exists and is not the measurer: the measurer is a new address whose key is born in the vault` } };
+    if (!rec) {
+      // Si `<algo>.<agente>` existiera, sería un subagente: la regla de registerAgent lo rechaza (409).
+      const k = generateKeys();
+      try {
+        await this.registerAgent({ local: l, sig: k.sig, enc: k.enc, system: true, welcome: 0,
+          inbox: { policy: 'allowlist', allowlist: allow }, capabilities: { accepts: ['text/plain', 'application/json'], listed: false },
+          custody: { keys: 'house', via: MEDIDOR_VIA, since }, profile: MEDIDOR_PERFIL });
+      } catch (e) { return { status: e.status || 400, body: { reason: e.message } }; }
       await this.store.kvPut('boveda', l, { sellado: this.boveda.sellar({ sig: k.sig, sigPriv: k.sigPriv, enc: k.enc, encPriv: k.encPriv }, l), root: null, since });
-      await reCertificar(l, rec, { keys: 'house', via: MEDIDOR_VIA, since });
-    } else if (b.keys) return { status: 409, body: { reason: `${l}@${this.domain} is already the measurer: its key is not replaced through this door` } };
-    const nuevo = { local: l, owner, enabled, created: cfg?.created || since, updated: since };
+    } else if (b.allow !== undefined) {
+      const { certification: _c, webhook, notify_email, ...cuerpo } = rec;
+      const card = signObject({ ...cuerpo, inbox: { policy: 'allowlist', allowlist: allow } }, this.keys, 'certification');
+      await this.store.putAgent(l, { ...card, webhook, notify_email });
+      this.resolver.invalidate(`agent:${propia}`);
+    }
+    // La respuesta tiene que poder VOLVER: a cada dirección de la lista que sea de esta casa y filtre
+    // por lista se le agrega el medidor (lo mismo que el alta de ideas@).
+    for (const dir of allow) {
+      const p = parseAddress(dir);
+      if (p.domain !== this.domain || p.local === l) continue;
+      const r = await this.store.getAgent(p.local);
+      if (r?.inbox?.policy === 'allowlist' && !(r.inbox.allowlist || []).includes(propia)) { await this.agregarContactos(p.local, [propia]); this.resolver.invalidate(`agent:${dir}`); }
+    }
+    const nuevo = { local: l, owner, allow, enabled, created: cfg?.created || since, updated: since };
     await this.store.kvPut(MEDIDOR_NS, '_config', nuevo);
-    if (!cfg) await this._evento('measurer_created', `${l}@${this.domain}`, {});
+    if (!cfg) await this._evento('measurer_created', propia, {});
     const card = await this.agentCard(l);
-    return { status: cfg ? 200 : 201, body: { address: `${l}@${this.domain}`, custody: card?.custody || null, medidor: nuevo } };
+    return { status: cfg ? 200 : 201, body: { address: propia, sig: card?.sig || null, custody: card?.custody || null, medidor: nuevo } };
   }
   async _adminAsistente(rx, local, accion) {
     const b = rx.body || {};
