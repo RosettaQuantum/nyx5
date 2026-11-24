@@ -12,7 +12,7 @@ Nada de esto lo puede hacer la sesión: exige sus credenciales, su firma o su cr
 
 | | Qué | Desde |
 |---|---|---|
-| ☐ | **Alta del medidor (NX-607, demo del 27-nov)**: correr una vez `node ~/Documents/Claude/Projects/Chasqui/medidor/alta-rosetta.mjs` (pasa la llave de rosetta@ a la bóveda; su tarjeta dirá `custody: house, via: medidor`; se deshace con `DELETE /admin/medidor`) y luego el ensayo `medidor/ensayo.mjs`. La sesión no lo hizo: mover esa llave exige su OK | 24-nov |
+| ☐ | **Ensayo del medidor (NX-607, demo del 27-nov)**: `medicion-rosetta@nyx5.com` está viva (llave nacida en la bóveda; la de rosetta@ no salió del Mac). Correr `node ~/Documents/Claude/Projects/Chasqui/medidor/ensayo.mjs "mide rosettaquantum.com, sector fintech"` desde nicholas@ | 24-nov |
 | ☐ | **Cuenta prepago para el agente** (Mercado Pago empresa de Blue Tuna SpA, $30.000, logueada una vez en Chrome) para repetir la compra chilena con plata del agente | 14-sep |
 | ☐ | **Liberar el escrow** `ae65c82b` (500 tokens a compras@) cuando llegue el pedido de Mercado Libre; recordatorio en su buzón el 15-sep | 14-sep |
 | ☐ | **Enchufar los ejecutores de la fábrica de Rosetta**: (1) decidir a qué repositorio apunta cada rol (hoy la fábrica no tiene uno solo; `RosettaQuantum/quantum-run` es el candidato), (2) un PAT con *Contents: read and write* sobre ese repo — va a la casa por `POST /admin/executors`, nunca por el chat, (3) el workflow `examples/ci/nyx5-ejecutor.yml` y el secret `NYX5_KEY` en ese repo. La casa ya está desplegada y espera | 27-oct |
@@ -38,7 +38,7 @@ Nada de esto lo puede hacer la sesión: exige sus credenciales, su firma o su cr
 - Recorrido en workerd real contra el instrumento de Rosetta: pedido → ficha firmada y cifrada → acta sellada,
   3,6 s de punta a punta; el sello verifica con la llave de la casa.
 - 669/669 pruebas; 16 mutantes que gritan; dos carreras y un homógrafo encontrados y arreglados con su prueba.
-- Abierto: el alta de rosetta@ (su llave a la bóveda) y el ensayo en producción; ver «Abierto — de Nicholas».
+- Corregido por decisión de Nicholas: el medidor es `medicion-rosetta@nyx5.com` (PR #19, 7186e59, nyx5.com cacf01c9), llave nacida en la bóveda; textos aprobados sellados en `docs/aprobados/`. Abierto: el ensayo en producción.
 
 ### 4-nov-2026 — la puerta de npm quedó abierta, y el brief salió (NX-807, NX-808)
 
