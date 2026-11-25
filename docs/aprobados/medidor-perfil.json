@@ -1,0 +1,16 @@
+{
+  "aprobado": "Nicholas, 25-nov-2026, directo: la descripción pública de medicion-rosetta@ «tal cual». Es la ficha (profile) de su tarjeta; test/medidor.test.js exige que PERFIL y la tarjeta servida digan exactamente esto, y scripts/revision-medidor/a2-tarjeta-produccion.mjs lo compara contra nyx5.com.",
+  "perfil": {
+    "display_name": "Medidor de Rosetta",
+    "summary": "Mide la exposición post-cuántica de un dominio con el instrumento de Rosetta y sella el resultado en la notaría de la casa. Su llave nació en la bóveda de la casa y sólo existe ahí.",
+    "languages": [
+      "es",
+      "en"
+    ],
+    "tags": [
+      "rosetta",
+      "pqc",
+      "medicion"
+    ]
+  }
+}
