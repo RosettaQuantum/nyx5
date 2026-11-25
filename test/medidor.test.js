@@ -17,7 +17,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { generateKeys, sha256hex, canonical, verifyObject, signObject } from '../src/nucleo/crypto.js';
 import { Estafeta } from '../src/correo/estafeta.js';
 import { Agent } from '../src/correo/agente.js';
-import { atenderMedidor, interpretar, dominioValido, sectorDe, NS, NS_CUPO, CUPO, MARCA_ACTA, TEXTOS } from '../src/correo/medidor.js';
+import { atenderMedidor, PERFIL, interpretar, dominioValido, sectorDe, NS, NS_CUPO, CUPO, MARCA_ACTA, TEXTOS } from '../src/correo/medidor.js';
 
 const P = 4917;
 const H = 'medidor.test';
@@ -153,6 +153,18 @@ test('los textos son los aprobados: el código sirve exactamente lo sellado en d
     assert.deepEqual(Object.keys(TEXTOS[lang]).sort(), Object.keys(doc.textos[lang]).sort(), `${lang}: ni un texto de más ni de menos`);
     for (const [k, v] of Object.entries(TEXTOS[lang])) assert.equal(typeof v === 'function' ? v(...doc.muestras[k]) : v, doc.textos[lang][k], `${lang}.${k}`);
   }
+});
+
+test('la ficha pública es la aprobada: PERFIL y la tarjeta servida dicen exactamente lo sellado en docs/aprobados', { timeout: 60_000 }, async () => {
+  const doc = JSON.parse(fs.readFileSync(path.join(raiz, 'docs/aprobados/medidor-perfil.json'), 'utf8'));
+  const sha = fs.readFileSync(path.join(raiz, 'docs/aprobados/medidor-perfil.sha256'), 'utf8').split(/\s+/)[0];
+  assert.equal(sha256hex(canonical(doc.perfil)), sha, 'el archivo aprobado no cambió');
+  assert.deepEqual({ ...PERFIL }, doc.perfil, 'PERFIL es exactamente lo aprobado');
+  // La tarjeta que sirve la casa (la del medidor dado de alta arriba): la ficha sin el `updated` que pone la casa.
+  const servida = await fetch(`${URL_CASA}/agents/${LOCAL_M}`).then((r) => r.json());
+  const { updated, ...ficha } = (servida.card || servida).profile;
+  assert.ok(updated, 'la casa fecha la ficha');
+  assert.deepEqual(ficha, doc.perfil, 'la tarjeta servida dice exactamente lo aprobado');
 });
 
 test('el recorrido: pide, recibe UNA respuesta firmada y cifrada con la ficha, y el acta queda sellada y se verifica', { timeout: 60_000 }, async () => {
