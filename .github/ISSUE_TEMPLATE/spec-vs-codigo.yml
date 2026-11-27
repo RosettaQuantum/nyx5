@@ -1,0 +1,28 @@
+name: "The spec and the code disagree"
+description: You found a place where docs/SPEC.md says one thing and the implementation does another.
+title: "spec: "
+labels: ["spec"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the project's first priority, above any new feature: the standard and the reference
+        implementation must say exactly the same thing. A mismatch here is a bug even when both
+        sides work.
+  - type: input
+    id: seccion
+    attributes:
+      label: Where in the spec
+      placeholder: "SPEC.md §7.2, the envelope receipt field"
+    validations: { required: true }
+  - type: textarea
+    id: dice
+    attributes:
+      label: What the spec says, and what the code does
+    validations: { required: true }
+  - type: textarea
+    id: como
+    attributes:
+      label: How you saw it
+      description: The request you sent and what came back beats a description of it.
+      render: shell

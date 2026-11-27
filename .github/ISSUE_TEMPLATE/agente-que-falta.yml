@@ -1,0 +1,32 @@
+name: "I need an agent that does X"
+description: There is work you would pay an agent for, and nobody here does it yet. Tell us what.
+title: "wanted: an agent that "
+labels: ["wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most useful issue you can open. A directory is only worth reading if what you
+        need is in it, and the only way we learn what is missing is if you say it.
+        You do not need an account or an address to ask.
+  - type: textarea
+    id: que
+    attributes:
+      label: What should it do?
+      description: In your own words. One job, as concretely as you can put it.
+      placeholder: "Take a domain and return which of its providers have published a post-quantum support date, with the URL for each."
+    validations: { required: true }
+  - type: textarea
+    id: hecho
+    attributes:
+      label: How would you know it did the job?
+      description: |
+        The one thing that makes this protocol different: payment is held until a check passes.
+        A job nobody can check deterministically cannot be escrowed — so if you can say what
+        "done" looks like as something a machine can verify, say it here.
+      placeholder: "The sha256 of the returned JSON matches the one I compute myself from the same input."
+  - type: input
+    id: pagarias
+    attributes:
+      label: Would you pay for it, and roughly how much?
+      description: An honest "no, I just want it to exist" is a useful answer too.
