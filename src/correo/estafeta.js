@@ -37,6 +37,7 @@ import { CONSOLA_HTML } from '../plataformas/consola-html.js';
 import * as consola from './consola.js';
 import { SPEC_HTML, LLMS_TXT } from '../plataformas/spec-html.js';
 import { HOME_HTML } from '../plataformas/home-html.js';
+import { tareasHtml } from '../plataformas/tareas-html.js';
 import { OG_PNG_B64 } from '../plataformas/og-png.js';
 import { inboundEnvelope, outboundPayload, isEmailAddress } from '../puentes/email.js';
 import * as x402 from '../puentes/x402.js';
@@ -321,6 +322,29 @@ export class Estafeta {
     if (accepts) out = out.filter((c) => c.capabilities?.accepts?.includes(accepts));
     if (q) { const needle = String(q).toLowerCase(); out = out.filter((c) => c.address.includes(needle) || JSON.stringify(c.capabilities).toLowerCase().includes(needle)); }
     return { total: out.length, offset, agents: out.slice(offset, offset + limit).map(({ delegation, ...c }) => ({ ...c, delegated_by: delegation?.by })) };
+  }
+  // Cuántos agentes puede CONTAR por su cuenta quien lea la portada (NX-810, 27-nov-2026).
+  //
+  // Decía 135. De esos, 72 nunca habían intercambiado un sobre con nadie y el número subía solo
+  // +1 cada día, porque el canario diario de CI registra una identidad nueva y se manda un sobre
+  // a sí mismo. O sea que la prueba de vida de la portada era, en su mayor parte, un contador de
+  // nuestros propios despliegues. El comentario de la portada ya decía lo correcto —«un número
+  // inventado convertiría igual de bien y sería mentira»— pero contaba registros, no agentes.
+  //
+  // La regla ahora es la del directorio, que ya era la honesta: figurar es OPT-IN, el default es
+  // no figurar. Así el número de la portada es EXACTAMENTE el que un extraño puede contar él
+  // mismo abriendo /index/agents. Un número público que el lector no puede verificar no es una
+  // prueba de vida: es una afirmación, y aquí una afirmación cuesta algo.
+  //
+  // Se reusa `directory()` en vez de copiar su filtro: el mismo contrato en dos artefactos cambia
+  // en dos pasos, y el segundo se olvida. La caché es porque `directory()` lee una tarjeta por
+  // agente y la portada es la página más visitada: sin ella, cada visita costaría N lecturas.
+  async agentesListados({ ttlMs = 60_000, ahora = Date.now() } = {}) {
+    this._listados = this._listados || { t: 0, n: 0 };
+    if (ahora - this._listados.t < ttlMs) return this._listados.n;
+    const { total } = await this.directory({ limit: 1 });
+    this._listados = { t: ahora, n: total };
+    return total;
   }
   async domainCard() {
     // La tarjeta se firma UNA vez y se guarda con el dominio. Antes se firmaba por instancia del
@@ -2430,7 +2454,7 @@ export class Estafeta {
       if (rx.method === 'GET' && path === '/') {
         let vivo = '';
         try {
-          const agentes = (await this.store.listAgents()).filter((a) => !this.isSystem(a)).length;
+          const agentes = await this.agentesListados();
           const tareas = this.tareas.enabled ? this.tareas.publicadas().length : 0;
           const partes = [`<b>${agentes}</b> agent${agentes === 1 ? '' : 's'} in this house`];
           if (tareas) partes.push(`<b>${tareas}</b> paid task${tareas === 1 ? '' : 's'} open`);
@@ -2876,6 +2900,15 @@ export class Estafeta {
         if (!this.tareas.enabled) return send(404, { reason: 'this house does not seed work' });
         const publicadas = this.tareas.publicadas().map((t) => ({ ...t, terms: this.tareas.terminosDe(this.tareas.tarea(t.id)) }));
         const desk = `tareas@${this.domain}`, arbiter = `verifica@${this.domain}`;
+        // Una persona que abre esta URL en el navegador ve el catálogo; todo lo demás sigue
+        // viendo el mismo JSON, byte por byte. Se elige por `Accept`, y sólo cuando pide html
+        // EXPLÍCITAMENTE: el cliente de Nyx5 no manda esa cabecera (ver src/correo/agente.js),
+        // así que ningún agente ya instalado puede verse afectado por esto. Este catálogo es lo
+        // único de la casa que le sirve a un extraño el primer día, y llevaba meses sin cara.
+        if (/\btext\/html\b/.test(rx.headers.accept || '')) {
+          return { status: 200, contentType: 'text/html; charset=utf-8',
+            body: tareasHtml(this.domain, { desk, arbiter, per_agent_per_day: this.tareas.porAgenteDia, tasks: publicadas }) };
+        }
         // Los nombres viejos viajan junto a los nuevos. Renombrar un campo público rompe a TODO
         // cliente ya instalado, en silencio y sin que ninguna prueba se entere: el agente ve
         // "no hay tareas" y se va. Se mantienen hasta que ninguna versión publicada los use.

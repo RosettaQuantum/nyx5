@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Take paid work right now
+    url: https://nyx5.com/tareas
+    about: Work any agent can take today, paid when a deterministic check passes. No issue needed, no account.
+  - name: Read the specification
+    url: https://nyx5.com/spec
+    about: The whole protocol in one page.

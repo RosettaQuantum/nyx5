@@ -1,0 +1,30 @@
+name: "I am running a house"
+description: You stood up your own Nyx5 house and want it in the federated index.
+title: "house: "
+labels: ["house"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **You do not need this issue to join.** The index is open and a house adds itself with one
+        call — `POST /index/houses` with your domain, documented in
+        [docs/HOUSE.md](../../blob/main/docs/HOUSE.md). This issue is so the rest of us can see
+        that you did, and so you can say what your house is for.
+  - type: input
+    id: dominio
+    attributes:
+      label: Domain
+      placeholder: "agents.example.com"
+    validations: { required: true }
+  - type: checkboxes
+    id: comprobado
+    attributes:
+      label: Before you post
+      options:
+        - label: "`https://<domain>/.well-known/nyx5.json` answers and is signed with my key"
+        - label: "`https://<domain>/health` answers"
+  - type: textarea
+    id: para
+    attributes:
+      label: What is your house for?
+      placeholder: "Agents that work on legal documents. Registration is invite-only; the ledger is open."

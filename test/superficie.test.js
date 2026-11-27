@@ -62,7 +62,11 @@ test('la tarjeta del dominio se firma una vez, no en cada arranque', () => {
 
 test('el endpoint de trabajo habla inglés, y lo español que queda es solo compatibilidad', () => {
   const i = estafeta.indexOf("path === '/tareas'");
-  const bloque = estafeta.slice(i, i + 1400);
+  // El bloque llega hasta la ruta siguiente, no hasta un número fijo de caracteres. Antes cortaba
+  // a los 1400 y bastó agregarle un comentario al handler para que los campos en inglés quedaran
+  // fuera de la ventana: la prueba fallaba sin que nada de lo que vigila hubiera cambiado.
+  const sig = estafeta.indexOf("\n      if (rx.method ===", i);
+  const bloque = estafeta.slice(i, sig > i ? sig : i + 1400);
   // Los campos que un cliente NUEVO lee van en inglés.
   for (const en of ['desk,', 'arbiter,', 'per_agent_per_day:', 'how:', 'tasks: publicadas']) {
     assert.ok(bloque.includes(en), `falta el campo ${en}`);
@@ -145,14 +149,38 @@ test('la prueba de vida de la portada sale del libro y no rompe si falla', async
   });
   await casa.start();
   try {
-    const leer = async () => (await casa.handleRequest({ method: 'GET', path: '/', query: new URLSearchParams(), headers: {}, body: null })).body;
-    // Sin agentes propios (solo los de sistema, que no cuentan): dice 0 y no revienta.
-    assert.match(await leer(), /<b>0<\/b> agents in this house/);
+    // La portada cachea el conteo 60 s (lee una tarjeta por agente y es la página más visitada),
+    // así que aquí se vacía la caché a mano antes de cada lectura: sin esto la prueba mediría la
+    // caché y no la regla, y pasaría igual con la regla rota.
+    const leer = async () => { casa._listados = { t: 0, n: 0 }; return (await casa.handleRequest({ method: 'GET', path: '/', query: new URLSearchParams(), headers: {}, body: null })).body; };
+    // `handleRequest` devuelve el cuerpo ya como objeto en las rutas JSON, no como texto.
+    const cuantosPublica = async () => (await casa.handleRequest({ method: 'GET', path: '/agents', query: new URLSearchParams(), headers: {}, body: null })).body.total;
+    // LA PROPIEDAD, y es la única que hace que el número valga algo: la portada dice EXACTAMENTE
+    // lo que el lector puede contar él mismo en el directorio público. Se comprueba en cada paso,
+    // no una vez: un número público que nadie puede verificar no es prueba de vida, es una
+    // afirmación — y aquí una afirmación cuesta algo.
+    const concuerdan = async (nota) => {
+      const n = await cuantosPublica();
+      assert.match(await leer(), new RegExp(`<b>${n}</b> agent${n === 1 ? '\\b' : 's'} in this house`), nota);
+      return n;
+    };
+    await concuerdan('al arrancar');
     assert.ok(!/<!--VIVO-->/.test(await leer()), 'el hueco debe quedar sustituido siempre');
-    // Con uno, concuerda en singular: un contador que dice "1 agents" delata que es de adorno.
     const { join } = await import('../src/correo/unirse.js');
-    await join({ house: 'v2.test', hosts: { 'v2.test': { url: `http://127.0.0.1:${P2}` } }, name: 'solo' });
-    assert.match(await leer(), /<b>1<\/b> agent in this house/);
+    // EL DEFECTO, tal como estaba vivo en producción: figurar en el directorio es opt-in, pero la
+    // portada contaba REGISTROS. Por eso la casa anunciaba 135 agentes mientras su propio
+    // directorio publicaba 14, y el número subía solo +1 cada día con el canario de CI — era, en
+    // su mayor parte, un contador de nuestros propios despliegues. Antes del arreglo esta alta
+    // movía el número; ahora no lo mueve, porque este agente no pidió aparecer.
+    const antes = await cuantosPublica();
+    await join({ house: 'v2.test', hosts: { 'v2.test': { url: `http://127.0.0.1:${P2}` } }, name: 'callado' });
+    assert.equal(await cuantosPublica(), antes, 'quien no pide figurar no entra al directorio');
+    await concuerdan('quien no pidió figurar no se anuncia en la portada');
+    // Y con uno que SÍ lo pidió: sube de a uno, y concuerda en singular o plural — un contador
+    // que dice "1 agents" delata que es de adorno.
+    await join({ house: 'v2.test', hosts: { 'v2.test': { url: `http://127.0.0.1:${P2}` } }, name: 'visible', listed: true });
+    assert.equal(await cuantosPublica(), antes + 1, 'quien lo pide sí entra');
+    await concuerdan('y la portada lo refleja');
     // Si el almacén falla, la portada se sirve igual y sin la línea.
     const original = casa.store.listAgents.bind(casa.store);
     casa.store.listAgents = async () => { throw new Error('almacén caído'); };
@@ -270,6 +298,48 @@ test('el endpoint de trabajo sigue sirviendo los nombres viejos junto a los nuev
     assert.deepEqual(j.tasks, j.tareas);
     // Y la respuesta dice cuáles son los que van a desaparecer, para que se puedan retirar.
     assert.deepEqual(j._deprecated, ['mostrador', 'arbitro', 'tareas']);
+  } finally { await casa.stop(); }
+});
+
+// El catálogo de trabajo llevaba meses público, en el sitemap, y sólo hablaba JSON: era lo único
+// de esta casa que le sirve a un extraño el primer día y no había forma de mirarlo ni compartirlo.
+// Ahora la misma URL tiene cara humana. El riesgo de un cambio así es romper, en silencio, a todo
+// cliente ya instalado — por eso las dos mitades se prueban juntas: que el JSON no se mueva, y que
+// el HTML sólo aparezca cuando alguien lo pide EXPLÍCITAMENTE.
+test('/tareas: el agente sigue viendo el mismo JSON y la persona ve el catálogo', async () => {
+  const { Estafeta } = await import('../src/correo/estafeta.js');
+  const os = await import('node:os');
+  const P2 = 4183;
+  const cat = [{ id: 'x', concept: 'algo medible', price: 10, verify: { type: 'http_status', url: 'https://x.invalid/' } }];
+  const casa = new Estafeta({
+    domain: 'h.test', port: P2, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'nyx5-tareas-html-')),
+    adminToken: 't', hosts: { 'h.test': { url: `http://127.0.0.1:${P2}` } }, workerIntervalMs: 9999,
+    policy: { registration: 'open' }, tareas: { catalogo: cat }, log: () => {},
+  });
+  await casa.start();
+  try {
+    const pedir = (accept) => casa.handleRequest({ method: 'GET', path: '/tareas', query: new URLSearchParams(), headers: accept ? { accept } : {}, body: null });
+    // SILENCIO. El cliente de Nyx5 no manda `accept` (src/correo/agente.js no la pone), y un
+    // cliente que pide json tampoco quiere una página. Las dos siguen recibiendo el objeto.
+    for (const a of [null, 'application/json', '*/*']) {
+      const r = await pedir(a);
+      assert.equal(typeof r.body, 'object', `accept=${a} debe seguir recibiendo JSON`);
+      assert.equal(r.body.tasks.length, 1);
+      assert.equal(r.body.desk, 'tareas@h.test');
+    }
+    // GRITO. Un navegador sí la pide, y recibe la página.
+    const html = await pedir('text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8');
+    assert.match(html.contentType, /text\/html/);
+    assert.match(html.body, /<!doctype html>/i);
+    assert.match(html.body, /1 paid task open at h\.test/, 'el titular cuenta lo que hay, en singular');
+    assert.match(html.body, /algo medible/, 'cada tarea publicada aparece');
+    assert.match(html.body, /tareas@h\.test/);
+    // Y lo que más duele si falla: el comando que la página imprime tiene que EXISTIR. Publicar
+    // uno que ninguna superficie sabe ejecutar es el defecto que esta casa ya pagó cinco veces.
+    assert.match(html.body, /npx @nyx5\/nyx5 tomar --id x/);
+    const cli = fs.readFileSync(path.join(raiz, 'bin/nyx5.js'), 'utf8');
+    assert.match(cli, /case 'tomar':/, 'la página promete un comando que el CLI debe tener');
+    assert.match(cli, /--id/, 'y con la bandera que la página imprime');
   } finally { await casa.stop(); }
 });
 
